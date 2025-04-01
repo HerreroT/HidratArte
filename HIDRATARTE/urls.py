@@ -16,7 +16,10 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path
+from main.views import home  # Importa la vista home desde la app main
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('', home, name='home'),  # Agrega la URL para la página principal
 ]
+
