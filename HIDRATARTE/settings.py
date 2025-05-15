@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'corsheaders',
     'drf_spectacular',
+    'useradmin',
 ]
 
 MIDDLEWARE = [
@@ -142,5 +143,10 @@ CORS_ALLOWED_ORIGINS = []
 REST_FRAMEWORK = {
 
 'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
-
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+    ],
 }
+
+
+AUTH_USER_MODEL = 'useradmin.User'

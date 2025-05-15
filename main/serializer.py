@@ -31,12 +31,9 @@
 #         model = Pedido
 #         fields = ['id', 'usuario', 'fecha', 'total', 'metodo_pago', 'detalles_pedido']
 from rest_framework import serializers
-from .models import User, PaymentMethod, Product, Order, OrderDetail
+from .models import PaymentMethod, Product, Order, OrderDetail
+from useradmin.serializer import UserSerializer
 
-class UserSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = User
-        fields = ['id', 'name', 'email', 'password', 'address']
 
 class PaymentMethodSerializer(serializers.ModelSerializer):
     class Meta:

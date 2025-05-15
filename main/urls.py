@@ -18,7 +18,6 @@ from rest_framework import routers
 from main import views
 
 router = routers.DefaultRouter()
-router.register(r'users', views.UserViewSet, basename='users')
 router.register(r'payment-methods', views.PaymentMethodViewSet, basename='payment-methods')
 router.register(r'products', views.ProductViewSet, basename='products')
 router.register(r'orders', views.OrderViewSet, basename='orders')

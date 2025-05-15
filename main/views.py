@@ -25,12 +25,10 @@
 #     serializer_class = DetallePedidoSerializer
 from rest_framework import viewsets
 from .models import User, PaymentMethod, Product, Order, OrderDetail
-from .serializer import UserSerializer, PaymentMethodSerializer, ProductSerializer, OrderSerializer, OrderDetailSerializer
+from .serializer import PaymentMethodSerializer, ProductSerializer, OrderSerializer, OrderDetailSerializer
 
 
-class UserViewSet(viewsets.ModelViewSet):
-    queryset = User.objects.all()
-    serializer_class = UserSerializer
+
 
 class PaymentMethodViewSet(viewsets.ModelViewSet):
     queryset = PaymentMethod.objects.all()
