@@ -1,13 +1,8 @@
-from django.urls import path, include 
-from rest_framework import routers
-from useradmin import views
-from .views import LogoutView
-
-router = routers.DefaultRouter()
-router.register(r'users', views.UserViewSet, basename='users')
+from django.urls import path
+from .views import LogoutJWTView, ProfileView, UserViewSet
 
 urlpatterns = [
-    path('useradmin/', include(router.urls)),
-    path('useradmin/login/', views.LoginView.as_view(), name='login'),
-    path('useradmin/logout/', LogoutView.as_view(), name='logout'),
+    path('jwt/logout/', LogoutJWTView.as_view(), name='jwt_logout'),
+    path('profile/', ProfileView.as_view(), name='profile'),
+    path('users/', UserViewSet.as_view(), name='users'),  # Registro/listado
 ]
