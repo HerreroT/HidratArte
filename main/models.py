@@ -44,15 +44,8 @@
 #         return f"{self.amount} x {self.product.name} en Pedido {self.order.id}"
     
 from django.db import models
+from useradmin.models import User
 
-class User(models.Model):
-    name = models.CharField(max_length=255)
-    email = models.EmailField(unique=True)
-    password = models.CharField(max_length=255)
-    address = models.TextField()
-
-    def __str__(self):
-        return self.name
 
 class PaymentMethod(models.Model):
     name = models.CharField(max_length=255)
