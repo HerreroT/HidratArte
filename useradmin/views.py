@@ -1,43 +1,52 @@
-from django.contrib.auth import authenticate, login, logout
-from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework_simplejwt.tokens import RefreshToken
+
 from .models import User
 from .serializer import UserSerializer
 from .permissons import IsAdminOrReadOnly
 
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
 
-
-class UserViewSet(viewsets.ModelViewSet):
-    queryset = User.objects.all()
-    serializer_class = UserSerializer
+class UserViewSet(APIView):
     permission_classes = [IsAdminOrReadOnly]
 
+    def get(self, request):
+        users = User.objects.all()
+        serializer = UserSerializer(users, many=True)
+        return Response(serializer.data)
 
-@method_decorator(csrf_exempt, name='dispatch')  # <- solo si tenés errores de CSRF
-class LoginView(APIView):
     def post(self, request):
-        username = request.data.get("username")
-        password = request.data.get("password")
-
-        user = authenticate(request, username=username, password=password)
-
-        if user is not None:
-            login(request, user)  # Crea la sesión
-            return Response({
-                "message": "Login exitoso",
-                "username": user.username,
-                "email": user.email,
-            }, status=status.HTTP_200_OK)
-        else:
-            return Response({"error": "Credenciales inválidas"}, status=status.HTTP_400_BAD_REQUEST)
+        serializer = UserSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-class LogoutView(APIView):
+class LogoutJWTView(APIView):
+    permission_classes = [IsAuthenticated]
+
     def post(self, request):
-        logout(request)
-        return Response({"message": "Logout exitoso"}, status=status.HTTP_200_OK)
+        try:
+            refresh_token = request.data["refresh"]
+            token = RefreshToken(refresh_token)
+            token.blacklist()
+            return Response({"message": "Logout ok"}, status=status.HTTP_205_RESET_CONTENT)
+        except Exception:
+            return Response({"error": "Token inválido"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ProfileView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        return Response({
+            "username": user.username,
+            "email": user.email,
+            "address": getattr(user, "address", "")
+        })
 
 
