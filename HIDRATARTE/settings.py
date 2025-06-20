@@ -138,7 +138,12 @@ STATIC_URL = 'static/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-CORS_ALLOWED_ORIGINS = []
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",  # o la URL de tu frontend
+]
+
+# Para que se envíen cookies cross-site
+CORS_ALLOW_CREDENTIALS = True
 
 REST_FRAMEWORK = {
 
