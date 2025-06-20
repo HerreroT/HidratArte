@@ -1,50 +1,36 @@
-from django.test import TestCase
 from rest_framework.test import APITestCase
-from rest_framework import status
 from django.urls import reverse
 from .models import User
+from rest_framework import status
 
-class AuthTests(APITestCase):
+class JWTAuthTests(APITestCase):
     def setUp(self):
-    
         self.user = User.objects.create_user(
-            username="testuser",
-            email="testuser@example.com",
-            password="testpass123",
-            address="123 test street"
+            username="jwtuser",
+            email="jwt@mail.com",
+            password="jwtpass123",
+            address="JWT st."
         )
 
-    def test_login_successful(self):
-        url = reverse('login')
-        data = {"username": "testuser", "password": "testpass123"}
-        response = self.client.post(url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn("message", response.data)
+    def test_obtain_token(self):
+        url = reverse('token_obtain_pair')
+        resp = self.client.post(url, {"username": "jwtuser", "password": "jwtpass123"}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIn('access', resp.data)
+        self.assertIn('refresh', resp.data)
 
-    def test_login_failed(self):
-        url = reverse('login')
-        data = {"username": "testuser", "password": "wrongpassword"}
-        response = self.client.post(url, data, format='json')
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+    def test_access_protected_view(self):
+        token_resp = self.client.post(reverse('token_obtain_pair'),
+                                      {"username": "jwtuser", "password": "jwtpass123"}, format='json')
+        access = token_resp.data['access']
+        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {access}')
+        resp = self.client.get(reverse('profile'))   # ruta de ProfileView
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
 
-    def test_logout(self):
-        # Primero logueamos
-        self.client.login(username="testuser", password="testpass123")
-        url = reverse('logout')
-        response = self.client.post(url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data['message'], 'Logout exitoso')
-
-    def test_register_user(self):
-        url = reverse('users-list')  
-        data = {
-            "username": "newuser",
-            "email": "newuser@example.com",
-            "password": "newpass123",
-            "address": "some address"
-        }
-        response = self.client.post(url, data, format='json')
-        
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-
+    def test_refresh_token(self):
+        token_resp = self.client.post(reverse('token_obtain_pair'),
+                                      {"username": "jwtuser", "password": "jwtpass123"}, format='json')
+        refresh = token_resp.data['refresh']
+        resp = self.client.post(reverse('token_refresh'), {"refresh": refresh}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIn('access', resp.data)
