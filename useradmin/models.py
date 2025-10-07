@@ -6,7 +6,7 @@ class User(AbstractUser):
     
     email = models.EmailField(unique=True)
     address = models.TextField()
- 
+    
 
     def __str__(self):
         return self.username 

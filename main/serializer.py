@@ -1,37 +1,6 @@
-# from rest_framework import serializers
-# from .models import Usuario, MetodoPago, Producto, Pedido, DetallePedido
 
-# class UsuarioSerializer(serializers.ModelSerializer):
-#     class Meta:
-#         model = Usuario
-#         fields = ['id', 'nombre', 'email', 'contraseña', 'direccion']
-
-# class MetodoPagoSerializer(serializers.ModelSerializer):
-#     class Meta:
-#         model = MetodoPago
-#         fields = ['id', 'nombre', 'detalles']
-
-# class ProductoSerializer(serializers.ModelSerializer):
-#     class Meta:
-#         model = Producto
-#         fields = ['id', 'nombre', 'descripcion', 'precio', 'stock']
-
-# class DetallePedidoSerializer(serializers.ModelSerializer):
-#     producto = ProductoSerializer() 
-#     class Meta:
-#         model = DetallePedido
-#         fields = ['id', 'pedido', 'producto', 'cantidad', 'subtotal']
-
-# class PedidoSerializer(serializers.ModelSerializer):
-#     usuario = UsuarioSerializer() 
-#     metodo_pago = MetodoPagoSerializer()  
-#     detalles_pedido = DetallePedidoSerializer(many=True, read_only=True)  
-
-#     class Meta:
-#         model = Pedido
-#         fields = ['id', 'usuario', 'fecha', 'total', 'metodo_pago', 'detalles_pedido']
 from rest_framework import serializers
-from .models import PaymentMethod, Product, Order, OrderDetail
+from .models import PaymentMethod, Product, Order, OrderDetail, Cart, CartItem
 from useradmin.serializer import UserSerializer
 
 
@@ -60,4 +29,23 @@ class OrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = ['id', 'user', 'date', 'total', 'payment_method', 'order_detail']
+        
+class CartItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CartItem
+        fields = ["id", "product_id", "name", "price", "qty", "image"]
+
+class CartSerializer(serializers.ModelSerializer):
+    items = CartItemSerializer(many=True, read_only=True)
+    user_id = serializers.PrimaryKeyRelatedField(source="user", read_only=True)
+    total = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Cart
+        fields = ["id", "user_id", "items", "total", "updated_at"]
+
+    def get_total(self, obj):
+        return sum([item.price * item.qty for item in obj.items.all()])
+
+
 
