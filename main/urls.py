@@ -1,5 +1,4 @@
-
-from django.urls import path, include 
+from django.urls import path, include
 from rest_framework import routers
 from main import views
 from main.views import CartViewSet
@@ -10,6 +9,7 @@ router.register(r'payment-methods', views.PaymentMethodViewSet, basename='paymen
 router.register(r'products', views.ProductViewSet, basename='products')
 router.register(r'orders', views.OrderViewSet, basename='orders')
 router.register(r'order-details', views.OrderDetailViewSet, basename='order-details')
+router.register(r'user-product-records', views.UserProductRecordViewSet, basename='user-product-records')
 
 
 cart_list = CartViewSet.as_view({"get": "list"})

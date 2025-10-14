@@ -1,6 +1,5 @@
-
 from rest_framework import serializers
-from .models import PaymentMethod, Product, Order, OrderDetail, Cart, CartItem
+from .models import PaymentMethod, Product, Order, OrderDetail, Cart, CartItem, UserProductRecord
 from useradmin.serializer import UserSerializer
 
 
@@ -49,3 +48,16 @@ class CartSerializer(serializers.ModelSerializer):
 
 
 
+class UserProductRecordSerializer(serializers.ModelSerializer):
+    user_id = serializers.PrimaryKeyRelatedField(source="user", read_only=True)
+    product = ProductSerializer(read_only=True)
+    product_id = serializers.PrimaryKeyRelatedField(
+        source="product",
+        queryset=Product.objects.all(),
+        write_only=True,
+    )
+
+    class Meta:
+        model = UserProductRecord
+        fields = ["id", "user_id", "product", "product_id", "quantity", "created_at", "updated_at"]
+        read_only_fields = ["id", "user_id", "product", "created_at", "updated_at"]

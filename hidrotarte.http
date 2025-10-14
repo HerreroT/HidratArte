@@ -1,0 +1,52 @@
+POST http://127.0.0.1:8000/useradmin/token/
+Content-Type: application/json
+
+1
+{
+2
+  "username": "<email>",
+3
+  "password": "<clave>"
+4
+}
+5
+
+6
+<# Auth header #>
+7
+Authorization: Bearer {{access}}
+
+8
+GET http://127.0.0.1:8000/main/model/user-product-records/
+9
+
+10
+POST http://127.0.0.1:8000/main/model/user-product-records/
+11
+Content-Type: application/json
+12
+
+13
+{
+14
+  "product_id": 5,
+15
+  "quantity": 2
+16
+}
+
+17
+PATCH http://127.0.0.1:8000/main/model/user-product-records/{id}/
+18
+Content-Type: application/json
+19
+
+20
+{
+21
+  "quantity": 3
+22
+}
+
+23
+DELETE http://127.0.0.1:8000/main/model/user-product-records/{id}/

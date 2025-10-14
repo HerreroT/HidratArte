@@ -1,4 +1,3 @@
-
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -11,6 +10,7 @@ from .models import (
     OrderDetail,
     Cart,
     CartItem,
+    UserProductRecord,
 )
 from .serializer import (
     PaymentMethodSerializer,
@@ -19,6 +19,7 @@ from .serializer import (
     OrderDetailSerializer,
     CartSerializer,
     CartItemSerializer,
+    UserProductRecordSerializer,
 )
 
 
@@ -145,3 +146,16 @@ class CartViewSet(viewsets.ViewSet):
                 obj.image = raw.get("image", obj.image)
                 obj.save()
         return Response(CartSerializer(cart).data, status=200)
+
+class UserProductRecordViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = UserProductRecordSerializer
+
+    def get_queryset(self):
+        base_queryset = UserProductRecord.objects.select_related("product", "user")
+        if self.request.user.is_staff:
+            return base_queryset
+        return base_queryset.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
