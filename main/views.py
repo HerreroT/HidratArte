@@ -1,6 +1,6 @@
-from rest_framework import status, viewsets
+﻿from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 
 from .models import (
@@ -12,6 +12,7 @@ from .models import (
     CartItem,
     UserProductRecord,
 )
+from .permissions import AdminOrReadOnly
 from .serializer import (
     PaymentMethodSerializer,
     ProductSerializer,
@@ -26,16 +27,47 @@ from .serializer import (
 class PaymentMethodViewSet(viewsets.ModelViewSet):
     queryset = PaymentMethod.objects.all()
     serializer_class = PaymentMethodSerializer
+    permission_classes = [AdminOrReadOnly]
 
 
 class ProductViewSet(viewsets.ModelViewSet):
-    queryset = Product.objects.all()
     serializer_class = ProductSerializer
+    permission_classes = [AdminOrReadOnly]
+
+    def get_queryset(self):
+        qs = Product.objects.all()
+        category = self.request.query_params.get("category")
+        if category:
+            qs = qs.filter(category=category)
+        return qs
+
+    @action(detail=True, methods=["post"], url_path="set-stock", permission_classes=[IsAdminUser])
+    def set_stock(self, request, pk=None):
+        try:
+            product = Product.objects.get(pk=pk)
+        except Product.DoesNotExist:
+            return Response({"detail": "Product not found"}, status=404)
+        try:
+            stock = int(request.data.get("stock"))
+        except (TypeError, ValueError):
+            return Response({"detail": "Invalid stock"}, status=400)
+        if stock < 0:
+            return Response({"detail": "Stock must be >= 0"}, status=400)
+        product.stock = stock
+        product.save(update_fields=["stock"])
+        return Response({"id": product.id, "stock": product.stock}, status=200)
 
 
 class OrderViewSet(viewsets.ModelViewSet):
-    queryset = Order.objects.all()
     serializer_class = OrderSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        qs = Order.objects.all()
+        user = self.request.user
+        if user and user.is_authenticated and not user.is_staff:
+            qs = qs.filter(user=user)
+        return qs
 
 
 class OrderDetailViewSet(viewsets.ModelViewSet):
@@ -147,15 +179,14 @@ class CartViewSet(viewsets.ViewSet):
                 obj.save()
         return Response(CartSerializer(cart).data, status=200)
 
+
 class UserProductRecordViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = UserProductRecordSerializer
 
     def get_queryset(self):
-        base_queryset = UserProductRecord.objects.select_related("product", "user")
-        if self.request.user.is_staff:
-            return base_queryset
-        return base_queryset.filter(user=self.request.user)
+        # Siempre mostrar solo el carrito del usuario actual
+        return UserProductRecord.objects.select_related("product", "user").filter(user=self.request.user)
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
