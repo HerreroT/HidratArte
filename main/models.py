@@ -69,14 +69,15 @@ class Cart(models.Model):
 
 class CartItem(models.Model):
     cart = models.ForeignKey(Cart, related_name="items", on_delete=models.CASCADE)
-    product_id = models.CharField(max_length=64)
+    # Use a real foreign key to Product to prevent orphaned cart items at DB level
+    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="cart_items")
     name = models.CharField(max_length=255)
     price = models.DecimalField(max_digits=10, decimal_places=2)
     qty = models.PositiveIntegerField(default=1)
     image = models.URLField(blank=True)
 
     class Meta:
-        unique_together = ("cart", "product_id")
+        unique_together = ("cart", "product")
 
 
 class UserProductRecord(models.Model):

@@ -31,6 +31,8 @@ from django.db import transaction
 from decimal import Decimal
 import logging
 
+logger = logging.getLogger(__name__)
+
 
 class AdminMetricsView(APIView):
     permission_classes = [IsAdminUser]
@@ -47,19 +49,32 @@ class AdminMetricsView(APIView):
         low_stock = [{'id': p.id, 'name': p.name, 'stock': p.stock} for p in low_stock_qs]
 
         total_orders = Order.objects.count()
-        total_sales = Order.objects.aggregate(sum=Sum('total'))['sum'] or 0
 
-        # recent sales last 7 days
+        # Define which statuses count as actual sales (exclude cancelled and pending)
+        sales_statuses = ['processing', 'shipped', 'delivered']
+        # Excluir únicamente los pedidos cancelados de las métricas de ventas
+        total_sales = Order.objects.exclude(status='cancelled').filter(status__in=sales_statuses).aggregate(sum=Sum('total'))['sum'] or 0
+
+        # Log para depurar total_sales
+        logger.debug("Estados considerados para ventas: %s", sales_statuses)
+        logger.debug("Total de ventas calculado: %s", total_sales)
+
+        # recent sales last 7 days (only counting confirmed/processing/shipped/delivered)
         since = timezone.now().date() - timedelta(days=7)
-        recent_sales = Order.objects.filter(date__gte=since).aggregate(sum=Sum('total'))['sum'] or 0
+        recent_sales = Order.objects.exclude(status='cancelled').filter(status__in=sales_statuses, date__gte=since).aggregate(sum=Sum('total'))['sum'] or 0
+
+        # Log para depurar recent_sales
+        logger.debug("Fecha límite para ventas recientes: %s", since)
+        logger.debug("Ventas recientes calculadas: %s", recent_sales)
 
         # users
         User = get_user_model()
         total_users = User.objects.count()
 
-        # top selling products (by amount in OrderDetail)
+        # top selling products considering only actual sales (exclude cancelled/pending orders)
         top_products = (
-            OrderDetail.objects.values('product__id', 'product__name')
+            OrderDetail.objects.filter(order__status__in=sales_statuses)
+            .values('product__id', 'product__name')
             .annotate(total_amount=Sum('amount'))
             .order_by('-total_amount')[:6]
         )
@@ -68,6 +83,9 @@ class AdminMetricsView(APIView):
             for p in top_products
         ]
 
+        # breakdown of orders by status (includes cancelled)
+        orders_by_status = {s['status']: s['count'] for s in Order.objects.values('status').annotate(count=Count('id'))}
+
         data = {
             'total_products': total_products,
             'out_of_stock': out_of_stock,
@@ -75,6 +93,8 @@ class AdminMetricsView(APIView):
             'total_orders': total_orders,
             'total_sales': float(total_sales),
             'recent_sales_7d': float(recent_sales),
+            # counts by status so admins can see cancelled/pending breakdown
+            'orders_by_status': {s['status']: s['count'] for s in Order.objects.values('status').annotate(count=Count('id'))},
             'total_users': total_users,
             'top_products': top_products_list,
         }
@@ -138,50 +158,124 @@ class OrderViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(qs, many=True)
         return Response(serializer.data)
 
+    @action(detail=True, methods=["post"], permission_classes=[IsAdminUser])
+    def confirm(self, request, pk=None):
+        """Admin endpoint: confirm an order.
+
+        This will check stock for each OrderDetail, decrement stock and move
+        the order to 'processing'. If any product lacks sufficient stock,
+        the operation is aborted and a 400 is returned describing the issue.
+        """
+        try:
+            order = self.get_object()
+        except Exception:
+            return Response({"detail": "Order not found"}, status=404)
+
+        if order.status != 'pending':
+            return Response({'detail': 'Only pending orders can be confirmed.'}, status=400)
+
+        with transaction.atomic():
+            # collect shortages
+            shortages = []
+            details = OrderDetail.objects.filter(order=order)
+            for d in details.select_related('product'):
+                if d.product.stock < d.amount:
+                    shortages.append({'product_id': d.product.id, 'name': d.product.name, 'available': d.product.stock, 'required': d.amount})
+
+            if shortages:
+                return Response({'detail': 'Stock insuficiente para alguno de los productos', 'shortages': shortages}, status=400)
+
+            # decrement stock
+            for d in details.select_related('product'):
+                p = d.product
+                p.stock -= d.amount
+                p.save(update_fields=['stock'])
+
+            order.status = 'processing'
+            order.save(update_fields=['status'])
+
+        return Response({'detail': 'Order confirmed and stock updated', 'order_id': order.id}, status=200)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAdminUser])
+    def accept(self, request, pk=None):
+        """Permitir que un administrador acepte un pedido."""
+        try:
+            order = self.get_object()
+        except Exception:
+            return Response({"detail": "Order not found"}, status=404)
+
+        if order.status != 'pending':
+            return Response({'detail': 'Solo se pueden aceptar pedidos pendientes.'}, status=400)
+
+        with transaction.atomic():
+            order.status = 'processing'
+            order.save(update_fields=['status'])
+
+        return Response({'detail': 'Pedido aceptado', 'order_id': order.id}, status=200)
+
+    @action(detail=True, methods=["post"], permission_classes=[IsAdminUser])
+    def cancel(self, request, pk=None):
+        """Permitir que un administrador cancele un pedido."""
+        try:
+            order = self.get_object()
+        except Exception:
+            return Response({"detail": "Order not found"}, status=404)
+
+        if order.status in ('shipped', 'delivered', 'cancelled'):
+            return Response({'detail': f'No se puede cancelar un pedido con estado {order.status}.'}, status=400)
+
+        with transaction.atomic():
+            if order.status == 'processing':
+                details = OrderDetail.objects.filter(order=order)
+                for d in details.select_related('product').select_for_update():
+                    p = d.product
+                    p.stock = (p.stock or 0) + d.amount
+                    p.save(update_fields=['stock'])
+
+            order.status = 'cancelled'
+            order.save(update_fields=['status'])
+
+        return Response({'detail': 'Pedido cancelado', 'order_id': order.id}, status=200)
+
     @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
     def cancel(self, request, pk=None):
-        """Allow the order owner (or staff) to cancel an order if it's not yet shipped/delivered.
+        """Allow order owner or admin to cancel an order.
 
-        Cancelling restores stock for the order details and sets status to 'cancelled'.
+        If the order is already 'processing' we try to restore stock for each
+        OrderDetail (this assumes the stock was previously decremented at
+        confirmation). Cancellation of shipped/delivered orders is not allowed.
         """
-        user = request.user
         try:
-            # All select_for_update calls must be inside an atomic transaction
+            order = self.get_object()
+        except Exception:
+            return Response({"detail": "Order not found"}, status=404)
+
+        user = request.user
+        # only owner or admins can cancel
+        if not (user.is_staff or order.user == user):
+            return Response({"detail": "No autorizado a cancelar este pedido"}, status=403)
+
+        if order.status in ('shipped', 'delivered', 'cancelled'):
+            return Response({'detail': f'No se puede cancelar un pedido con estado {order.status}.'}, status=400)
+
+        try:
             with transaction.atomic():
-                try:
-                    order = Order.objects.select_for_update().get(pk=pk)
-                except Order.DoesNotExist:
-                    return Response({"detail": "Order not found"}, status=404)
-
-                # Only owner or staff can cancel
-                if not (user.is_staff or order.user == user):
-                    return Response({"detail": "No permission to cancel this order"}, status=403)
-
-                # Only allow cancelling if not shipped/delivered or already cancelled
-                if order.status in ("shipped", "delivered", "cancelled"):
-                    return Response({"detail": "No se puede cancelar este pedido en su estado actual."}, status=400)
-
-                # Restore stock and set cancelled. Lock each product row before update.
-                details = OrderDetail.objects.filter(order=order)
-                for d in details:
-                    try:
-                        prod = Product.objects.select_for_update().get(pk=d.product_id)
-                    except Product.DoesNotExist:
-                        # If product was removed, skip stock restore but continue
-                        logging.warning('Product %s referenced by order %s not found during cancel', d.product_id, pk)
-                        continue
-                    prod.stock = prod.stock + d.amount
-                    prod.save(update_fields=['stock'])
+                # if the order was already processed and stock was decremented,
+                # restore stock amounts
+                if order.status == 'processing':
+                    details = OrderDetail.objects.filter(order=order)
+                    for d in details.select_related('product').select_for_update():
+                        p = d.product
+                        p.stock = (p.stock or 0) + d.amount
+                        p.save(update_fields=['stock'])
 
                 order.status = 'cancelled'
                 order.save(update_fields=['status'])
 
-        except Exception as e:
-            logging.exception('Error cancelling order %s', pk)
-            # Return the exception message to help debugging in development
-            return Response({"detail": f"Error al cancelar el pedido: {str(e)}"}, status=500)
-
-        return Response({"detail": "Pedido cancelado"}, status=200)
+            return Response({'detail': 'Pedido cancelado', 'order_id': order.id}, status=200)
+        except Exception:
+            logger.exception('Error cancelando order %s by user %s', getattr(order, 'id', None), getattr(user, 'id', None))
+            return Response({'detail': 'Error al cancelar el pedido'}, status=500)
 
 
 class OrderDetailViewSet(viewsets.ModelViewSet):
@@ -209,10 +303,15 @@ class CartViewSet(viewsets.ViewSet):
             if k not in data:
                 return Response({"detail": f"Missing field: {k}"}, status=400)
         qty = max(int(data.get("qty", 1)), 1)
+        # Ensure product exists and use FK
+        try:
+            product = Product.objects.get(pk=data["product_id"])
+        except Product.DoesNotExist:
+            return Response({"detail": "Producto no encontrado"}, status=404)
 
         item, created = CartItem.objects.get_or_create(
             cart=cart,
-            product_id=data["product_id"],
+            product=product,
             defaults={
                 "name": data["name"],
                 "price": data["price"],
@@ -275,9 +374,16 @@ class CartViewSet(viewsets.ViewSet):
             if not all(k in raw for k in ["product_id", "name", "price"]):
                 continue
             qty = max(int(raw.get("qty", 1)), 1)
+            # validate product exists
+            try:
+                product = Product.objects.get(pk=raw["product_id"])
+            except Product.DoesNotExist:
+                # skip non-existing products while merging
+                logger.info('Skipping merge for non-existing product_id: %s', raw.get('product_id'))
+                continue
             obj, created = CartItem.objects.get_or_create(
                 cart=cart,
-                product_id=raw["product_id"],
+                product=product,
                 defaults={
                     "name": raw["name"],
                     "price": raw["price"],
@@ -314,21 +420,69 @@ class CheckoutView(APIView):
         items = request.data.get('items') or []
         shipping_address = request.data.get('shipping_address')
         payment_method_id = request.data.get('payment_method_id')
+        # Log the incoming request body and user for debugging
+        try:
+            logger.info('Checkout request received from user=%s; data=%s', getattr(user, 'id', None), request.data)
+        except Exception:
+            logger.exception('Failed to log checkout request data')
+        # Additionally log raw body, headers and client IP (trimmed) to help debugging
+        try:
+            raw_body = request.body.decode('utf-8', errors='replace')
+            # limit length to avoid huge logs
+            logger.debug('Checkout raw body (trimmed to 5000 chars): %s', raw_body[:5000])
+        except Exception:
+            logger.exception('Failed to decode checkout raw body')
+        try:
+            headers = {k: v for k, v in request.META.items() if k.startswith('HTTP_') or k in ('CONTENT_TYPE', 'CONTENT_LENGTH')}
+            logger.debug('Checkout headers: %s', headers)
+        except Exception:
+            logger.exception('Failed to log checkout headers')
+        try:
+            ip = request.META.get('REMOTE_ADDR') or request.META.get('HTTP_X_FORWARDED_FOR')
+            logger.debug('Checkout client IP: %s', ip)
+        except Exception:
+            logger.exception('Failed to log client IP')
         if not isinstance(items, list) or len(items) == 0:
             return Response({'detail': 'No hay items para procesar.'}, status=400)
+
+        # Log incoming items for debugging
+        logger.debug('Checkout called by user %s with items: %s', getattr(user, 'id', None), items)
+
+        # Parse and validate items explicitly, returning descriptive errors
+        parsed = []
+        for idx, raw in enumerate(items):
+            # accept multiple possible keys sent by frontend
+            pid = raw.get('product_id') or raw.get('productId') or raw.get('id')
+            if pid is None or pid == "" or pid == 0:
+                logger.warning('Invalid item at index %s: missing product id: %s', idx, raw)
+                return Response({'detail': 'Item inválido: falta product_id', 'item': raw}, status=400)
+            # parse qty defensively
+            qty_raw = raw.get('qty') if 'qty' in raw else raw.get('quantity', 1)
+            try:
+                qty = int(qty_raw)
+            except (TypeError, ValueError):
+                logger.warning('Invalid qty for item %s: %s', raw, qty_raw)
+                return Response({'detail': 'Cantidad inválida en item', 'item': raw}, status=400)
+            if qty <= 0:
+                logger.warning('Invalid qty (<=0) for item %s', raw)
+                return Response({'detail': 'Cantidad inválida (debe ser > 0) en item', 'item': raw}, status=400)
+            parsed.append({'product_id': pid, 'qty': qty, 'raw': raw})
 
         # Calculate totals and validate stock
         subtotal = Decimal('0.00')
         prepared = []
         try:
             with transaction.atomic():
-                for raw in items:
-                    pid = raw.get('product_id') or raw.get('productId') or raw.get('id')
-                    qty = int(raw.get('qty') or raw.get('quantity') or 1)
-                    if not pid or qty <= 0:
-                        raise ValueError('Item inválido')
-                    product = Product.objects.select_for_update().get(pk=pid)
+                for entry in parsed:
+                    pid = entry['product_id']
+                    qty = entry['qty']
+                    try:
+                        product = Product.objects.select_for_update().get(pk=pid)
+                    except Product.DoesNotExist:
+                        logger.warning('Product not found for pid %s (raw: %s)', pid, entry['raw'])
+                        return Response({'detail': f'Producto no encontrado: {pid}', 'item': entry['raw']}, status=404)
                     if product.stock < qty:
+                        logger.info('Insufficient stock for product %s: have %s, need %s', product.id, product.stock, qty)
                         return Response({'detail': f'Stock insuficiente para {product.name} (disponible: {product.stock})'}, status=400)
                     line_total = (product.price * qty)
                     subtotal += line_total
@@ -346,10 +500,10 @@ class CheckoutView(APIView):
                     except PaymentMethod.DoesNotExist:
                         return Response({'detail': 'Método de pago inválido'}, status=400)
 
-                # Create order
-                order = Order.objects.create(user=user, total=total, payment_method=payment_method, shipping_address=shipping_address)
+                # Create order in PENDING status (admin will confirm and decrement stock)
+                order = Order.objects.create(user=user, total=total, payment_method=payment_method, shipping_address=shipping_address, status='pending')
 
-                # Create order details and decrement stock
+                # Create order details (do NOT decrement stock here)
                 for p in prepared:
                     OrderDetail.objects.create(
                         order=order,
@@ -357,18 +511,16 @@ class CheckoutView(APIView):
                         amount=p['qty'],
                         subtotal=p['subtotal'],
                     )
-                    p['product'].stock -= p['qty']
-                    p['product'].save(update_fields=['stock'])
 
-                # Clear user's cart items
-                try:
-                    cart = Cart.objects.get(user=user)
-                    cart.items.all().delete()
-                except Cart.DoesNotExist:
-                    pass
-
-                return Response({'detail': 'Orden creada', 'order_id': order.id}, status=201)
-        except Product.DoesNotExist:
+                # Do not clear cart nor touch stock; admin must confirm the order
+                return Response({'detail': 'Orden creada y pendiente de confirmación por el administrador', 'order_id': order.id}, status=201)
+        except Product.DoesNotExist as e:
+            logger.exception('Product not found during checkout for user %s: %s', getattr(user, 'id', None), e)
             return Response({'detail': 'Producto no encontrado'}, status=404)
-        except ValueError:
+        except ValueError as e:
+            logger.exception('ValueError during checkout for user %s: %s', getattr(user, 'id', None), e)
             return Response({'detail': 'Datos de items inválidos'}, status=400)
+        except Exception as e:
+            # Catch-all to make sure we log unexpected errors with stack trace
+            logger.exception('Unhandled exception during checkout for user %s: %s', getattr(user, 'id', None), e)
+            return Response({'detail': 'Error interno durante checkout'}, status=500)
