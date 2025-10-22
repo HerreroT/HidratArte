@@ -22,6 +22,7 @@ merge_cart = CartViewSet.as_view({"post": "merge"})
 urlpatterns = [
     path('main/model/', include(router.urls)),
     path('main/model/admin-metrics/', views.AdminMetricsView.as_view(), name='admin-metrics'),
+    path('api/admin/metrics/', views.AdminMetricsView.as_view(), name='admin-metrics-v2'),
     path('main/model/checkout/', views.CheckoutView.as_view(), name='checkout'),
     path('api/cart/', cart_list, name='cart-detail'),
     path('api/cart/items/', add_item, name='cart-add-item'),

@@ -53,7 +53,7 @@ class OrderDetailSerializer(serializers.ModelSerializer):
 class OrderSerializer(serializers.ModelSerializer):
     user = UserSerializer()
     payment_method = PaymentMethodSerializer()
-    order_detail = OrderDetailSerializer(many=True, read_only=True) 
+    order_detail = OrderDetailSerializer(source="orderdetail_set", many=True, read_only=True)
 
     class Meta:
         model = Order

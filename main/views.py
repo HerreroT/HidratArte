@@ -25,13 +25,10 @@ from .serializer import (
     UserProductRecordSerializer,
     NotificationSerializer,
 )
-from django.db.models import Sum, Count
-from django.utils import timezone
-from datetime import timedelta
+from django.db.models import Sum
 from django.contrib.auth import get_user_model
 from rest_framework.views import APIView
 from django.db import transaction
-from decimal import Decimal
 import logging
 
 logger = logging.getLogger(__name__)
@@ -63,67 +60,55 @@ class AdminMetricsView(APIView):
     permission_classes = [IsAdminUser]
 
     def get(self, request):
-        Product = globals().get('Product')
-        Order = globals().get('Order')
-        OrderDetail = globals().get('OrderDetail')
+        APPROVED_STATUSES = ['processing', 'shipped', 'delivered']
 
-        # Basic counts
         total_products = Product.objects.count()
-        out_of_stock = Product.objects.filter(stock__lte=0).count()
-        low_stock_qs = Product.objects.filter(stock__lte=5).order_by('stock')[:8]
-        low_stock = [{'id': p.id, 'name': p.name, 'stock': p.stock} for p in low_stock_qs]
+        total_users = get_user_model().objects.count()
 
-        total_orders = Order.objects.count()
+        orders_qs = Order.objects.all()
+        pending_count = orders_qs.filter(status='pending').count()
+        approved_count = orders_qs.filter(status__in=APPROVED_STATUSES).count()
+        canceled_count = orders_qs.filter(status='cancelled').count()
 
-        # Define which statuses count as actual sales (exclude cancelled and pending)
-        sales_statuses = ['processing', 'shipped', 'delivered']
-        # Excluir únicamente los pedidos cancelados de las métricas de ventas
-        total_sales = Order.objects.exclude(status='cancelled').filter(status__in=sales_statuses).aggregate(sum=Sum('total'))['sum'] or 0
-
-        # Log para depurar total_sales
-        logger.debug("Estados considerados para ventas: %s", sales_statuses)
-        logger.debug("Total de ventas calculado: %s", total_sales)
-
-        # recent sales last 7 days (only counting confirmed/processing/shipped/delivered)
-        since = timezone.now().date() - timedelta(days=7)
-        recent_sales = Order.objects.exclude(status='cancelled').filter(status__in=sales_statuses, date__gte=since).aggregate(sum=Sum('total'))['sum'] or 0
-
-        # Log para depurar recent_sales
-        logger.debug("Fecha límite para ventas recientes: %s", since)
-        logger.debug("Ventas recientes calculadas: %s", recent_sales)
-
-        # users
-        User = get_user_model()
-        total_users = User.objects.count()
-
-        # top selling products considering only actual sales (exclude cancelled/pending orders)
-        top_products = (
-            OrderDetail.objects.filter(order__status__in=sales_statuses)
-            .values('product__id', 'product__name')
-            .annotate(total_amount=Sum('amount'))
-            .order_by('-total_amount')[:6]
+        total_sales = (
+            orders_qs.filter(status__in=APPROVED_STATUSES)
+            .aggregate(total=Sum('total'))
+            .get('total') or 0
         )
-        top_products_list = [
-            {'product_id': p['product__id'], 'name': p['product__name'], 'sold': p['total_amount']}
-            for p in top_products
+
+        top_products_qs = (
+            OrderDetail.objects.filter(order__status__in=APPROVED_STATUSES)
+            .values('product_id', 'product__name')
+            .annotate(units_sold=Sum('amount'))
+            .order_by('-units_sold')[:6]
+        )
+        top_products = [
+            {
+                'product_id': item['product_id'],
+                'name': item['product__name'],
+                'units_sold': item['units_sold'],
+            }
+            for item in top_products_qs
         ]
 
-        # breakdown of orders by status (includes cancelled)
-        orders_by_status = {s['status']: s['count'] for s in Order.objects.values('status').annotate(count=Count('id'))}
+        low_stock = [
+            {'product_id': p.id, 'name': p.name, 'stock': p.stock}
+            for p in Product.objects.filter(stock__lte=5).order_by('stock')[:8]
+        ]
 
-        data = {
+        response = {
             'total_products': total_products,
-            'out_of_stock': out_of_stock,
-            'low_stock': low_stock,
-            'total_orders': total_orders,
-            'total_sales': float(total_sales),
-            'recent_sales_7d': float(recent_sales),
-            # counts by status so admins can see cancelled/pending breakdown
-            'orders_by_status': {s['status']: s['count'] for s in Order.objects.values('status').annotate(count=Count('id'))},
             'total_users': total_users,
-            'top_products': top_products_list,
+            'orders': {
+                'pending': pending_count,
+                'approved': approved_count,
+                'canceled': canceled_count,
+            },
+            'total_sales': float(total_sales),
+            'top_products': top_products,
+            'low_stock': low_stock,
         }
-        return Response(data)
+        return Response(response)
 
 
 class PaymentMethodViewSet(viewsets.ModelViewSet):
