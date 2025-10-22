@@ -3,6 +3,8 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 
+from django.apps import apps
+
 from .models import (
     PaymentMethod,
     Product,
@@ -21,6 +23,7 @@ from .serializer import (
     CartSerializer,
     CartItemSerializer,
     UserProductRecordSerializer,
+    NotificationSerializer,
 )
 from django.db.models import Sum, Count
 from django.utils import timezone
@@ -32,6 +35,28 @@ from decimal import Decimal
 import logging
 
 logger = logging.getLogger(__name__)
+
+try:
+    from .models import Notification  # type: ignore  # pragma: no cover
+except Exception:  # pragma: no cover - absence tolerated
+    Notification = None
+    for app_label in ("main", "notifications"):
+        try:
+            Notification = apps.get_model(app_label, "Notification")
+            if Notification is not None:
+                break
+        except Exception:
+            Notification = None
+
+
+def create_notification_safe(**kwargs):
+    """Attempt to create a notification without breaking the main flow."""
+    if Notification is None:
+        return
+    try:
+        Notification.objects.create(**kwargs)
+    except Exception:
+        logger.exception("Notification creation failed", exc_info=True)
 
 
 class AdminMetricsView(APIView):
@@ -198,7 +223,7 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], permission_classes=[IsAdminUser])
     def accept(self, request, pk=None):
-        """Permitir que un administrador acepte un pedido."""
+        """Permitir que un administrador acepte un pedido y notificar al usuario."""
         try:
             order = self.get_object()
         except Exception:
@@ -211,11 +236,17 @@ class OrderViewSet(viewsets.ModelViewSet):
             order.status = 'processing'
             order.save(update_fields=['status'])
 
-        return Response({'detail': 'Pedido aceptado', 'order_id': order.id}, status=200)
+            # Registrar notificación
+            create_notification_safe(
+                user=order.user,
+                message=f"Tu pedido #{order.id} ha sido aceptado."
+            )
+
+        return Response({'detail': 'Pedido aceptado y notificación enviada', 'order_id': order.id}, status=200)
 
     @action(detail=True, methods=["post"], permission_classes=[IsAdminUser])
     def cancel(self, request, pk=None):
-        """Permitir que un administrador cancele un pedido."""
+        """Permitir que un administrador cancele un pedido y notificar al usuario."""
         try:
             order = self.get_object()
         except Exception:
@@ -235,7 +266,13 @@ class OrderViewSet(viewsets.ModelViewSet):
             order.status = 'cancelled'
             order.save(update_fields=['status'])
 
-        return Response({'detail': 'Pedido cancelado', 'order_id': order.id}, status=200)
+            # Registrar notificación
+            create_notification_safe(
+                user=order.user,
+                message=f"Tu pedido #{order.id} ha sido cancelado."
+            )
+
+        return Response({'detail': 'Pedido cancelado y notificación enviada', 'order_id': order.id}, status=200)
 
     @action(detail=True, methods=["post"], permission_classes=[IsAuthenticated])
     def cancel(self, request, pk=None):
@@ -276,6 +313,16 @@ class OrderViewSet(viewsets.ModelViewSet):
         except Exception:
             logger.exception('Error cancelando order %s by user %s', getattr(order, 'id', None), getattr(user, 'id', None))
             return Response({'detail': 'Error al cancelar el pedido'}, status=500)
+
+
+class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
+    serializer_class = NotificationSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        if Notification is None:
+            return NotificationSerializer.Meta.model.objects.none()
+        return Notification.objects.filter(user=self.request.user).order_by('-created_at')
 
 
 class OrderDetailViewSet(viewsets.ModelViewSet):

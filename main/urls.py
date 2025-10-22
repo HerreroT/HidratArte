@@ -10,6 +10,7 @@ router.register(r'products', views.ProductViewSet, basename='products')
 router.register(r'orders', views.OrderViewSet, basename='orders')
 router.register(r'order-details', views.OrderDetailViewSet, basename='order-details')
 router.register(r'user-product-records', views.UserProductRecordViewSet, basename='user-product-records')
+router.register(r'notifications', views.NotificationViewSet, basename='notifications')
 
 
 cart_list = CartViewSet.as_view({"get": "list"})

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import PaymentMethod, Product, Order, OrderDetail, Cart, CartItem, UserProductRecord
+from .models import PaymentMethod, Product, Order, OrderDetail, Cart, CartItem, UserProductRecord, Notification
 from useradmin.serializer import UserSerializer
 
 
@@ -99,3 +99,9 @@ class UserProductRecordSerializer(serializers.ModelSerializer):
         model = UserProductRecord
         fields = ["id", "user_id", "product", "product_id", "quantity", "created_at", "updated_at"]
         read_only_fields = ["id", "user_id", "product", "created_at", "updated_at"]
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = ["id", "message", "created_at"]

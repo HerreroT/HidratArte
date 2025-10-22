@@ -143,3 +143,19 @@ class UserProductRecord(models.Model):
             product = Product.objects.select_for_update().get(pk=self.product_id)
             self._adjust_stock(product, -self.quantity)
             super().delete(*args, **kwargs)
+
+
+class Notification(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="notifications",
+    )
+    message = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Notification({self.user}): {self.message[:40]}"
