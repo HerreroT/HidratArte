@@ -9,39 +9,19 @@ class PaymentMethodSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'details']
 
 class ProductSerializer(serializers.ModelSerializer):
-    # Para lectura: URL completa
-    image = serializers.SerializerMethodField(read_only=True)
-    # Para escritura: archivo de imagen
-    image_upload = serializers.ImageField(write_only=True, required=False)
-    
+    image = serializers.ImageField(required=False, allow_null=True)
+
     class Meta:
         model = Product
-        fields = ['id', 'name', 'description', 'price', 'stock', 'category', 'image', 'image_upload']
-    
-    def get_image(self, obj):
-        if obj.image:
-            request = self.context.get('request')
-            if request:
-                return request.build_absolute_uri(obj.image.url)
-            return obj.image.url
-        return None
-    
-    def create(self, validated_data):
-        image_upload = validated_data.pop('image_upload', None)
-        product = Product.objects.create(**validated_data)
-        if image_upload:
-            product.image = image_upload
-            product.save()
-        return product
-    
-    def update(self, instance, validated_data):
-        image_upload = validated_data.pop('image_upload', None)
-        for attr, value in validated_data.items():
-            setattr(instance, attr, value)
-        if image_upload:
-            instance.image = image_upload
-        instance.save()
-        return instance
+        fields = ['id', 'name', 'description', 'price', 'stock', 'category', 'image']
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        image_url = representation.get('image')
+        request = self.context.get('request')
+        if image_url and request is not None:
+            representation['image'] = request.build_absolute_uri(image_url)
+        return representation
 
 class OrderDetailSerializer(serializers.ModelSerializer):
     product = ProductSerializer()

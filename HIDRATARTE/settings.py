@@ -33,9 +33,15 @@ DEBUG = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 't')
 
 ALLOWED_HOSTS = [host for host in os.environ.get('ALLOWED_HOSTS', '').split() if host]
 
-CSRF_TRUSTED_ORIGINS = [
-    "https://%2A.railway.app/",
-]
+FRONTEND_URL = os.environ.get('FRONTEND_URL')
+BACKEND_URL = os.environ.get('BACKEND_URL') or 'https://hidratarte-production.up.railway.app'
+
+CSRF_TRUSTED_ORIGINS = [BACKEND_URL.rstrip('/')]
+if FRONTEND_URL:
+    origin = FRONTEND_URL.rstrip('/')
+    if origin.startswith('http'):
+        CSRF_TRUSTED_ORIGINS.append(origin)
+
 # Application definition
 
 INSTALLED_APPS = [
@@ -146,16 +152,18 @@ STORAGES = {
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
+os.makedirs(MEDIA_ROOT, exist_ok=True)
+
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "https://hidratarte-production.up.railway.app",
-    "https://hidratarte.netlify.app"
-]
+CORS_ALLOWED_ORIGINS = ["http://localhost:3000"]
+if FRONTEND_URL:
+    CORS_ALLOWED_ORIGINS.append(FRONTEND_URL.rstrip('/'))
+if BACKEND_URL:
+    CORS_ALLOWED_ORIGINS.append(BACKEND_URL.rstrip('/'))
 
 # Para que se envíen cookies cross-site
 CORS_ALLOW_CREDENTIALS = True
