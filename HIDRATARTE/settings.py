@@ -154,6 +154,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "https://hidratarte-production.up.railway.app",
+    "https://hidratarte.netlify.app"
 ]
 
 # Para que se envíen cookies cross-site
