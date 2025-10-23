@@ -1,0 +1,88 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>Factura {{ invoice_number }}</title>
+    <link rel="stylesheet" href="{% static 'invoices/invoice.css' %}" />
+  </head>
+  <body>
+    <header class="header">
+      <div class="header-logo">
+        {% if logo_url %}
+          <img src="{{ logo_url }}" alt="Logo HidratArte" />
+        {% endif %}
+      </div>
+      <div class="header-info">
+        <h1>Factura</h1>
+        <h2>{{ invoice_number }}</h2>
+        <p>Pedido #{{ order.id }}</p>
+        <p>Fecha de emisión: {{ issued_at|date:"d/m/Y" }}</p>
+      </div>
+    </header>
+
+    <section class="columns">
+      <div class="column">
+        <div class="section-title">Vendedor</div>
+        <p><strong>{{ business.name }}</strong></p>
+        <p>{{ business.address }}</p>
+        <p>{{ business.email }}</p>
+        <p>{{ business.phone }}</p>
+      </div>
+      <div class="column">
+        <div class="section-title">Cliente</div>
+        <p><strong>{{ customer.username }}</strong></p>
+        {% if customer.email %}<p>{{ customer.email }}</p>{% endif %}
+        {% if shipping_address %}<p>{{ shipping_address }}</p>{% endif %}
+      </div>
+    </section>
+
+    <section>
+      <div class="section-title">Detalle de productos</div>
+      <table>
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th>Cantidad</th>
+            <th>Precio unitario</th>
+            <th>Subtotal</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in items %}
+            <tr>
+              <td>
+                <strong>{{ item.name }}</strong>
+                {% if item.description %}
+                  <br /><small>{{ item.description }}</small>
+                {% endif %}
+              </td>
+              <td class="text-right">{{ item.quantity }}</td>
+              <td class="text-right">${{ item.unit_price|floatformat:2 }}</td>
+              <td class="text-right">${{ item.subtotal|floatformat:2 }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+
+    <section class="summary">
+      <div class="summary-row">
+        <span>Subtotal productos</span>
+        <span>${{ subtotal|floatformat:2 }}</span>
+      </div>
+      <div class="summary-row">
+        <span>Envío</span>
+        <span>${{ shipping_cost|floatformat:2 }}</span>
+      </div>
+      <div class="summary-row summary-total">
+        <span>Total</span>
+        <span>${{ total|floatformat:2 }}</span>
+      </div>
+    </section>
+
+    <footer class="footer">
+      Gracias por tu compra • hidrarte.com
+    </footer>
+  </body>
+</html>

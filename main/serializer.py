@@ -104,4 +104,5 @@ class UserProductRecordSerializer(serializers.ModelSerializer):
 class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
-        fields = ["id", "message", "created_at"]
+        fields = ["id", "message", "created_at", "read"]
+

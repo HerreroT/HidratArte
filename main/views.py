@@ -1,9 +1,16 @@
 ﻿from rest_framework import status, viewsets
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
 
 from django.apps import apps
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
+from django.template.loader import render_to_string
+from django.templatetags.static import static
+from django.contrib.staticfiles import finders
+import pdfkit
+
 
 from .models import (
     PaymentMethod,
@@ -25,9 +32,11 @@ from .serializer import (
     UserProductRecordSerializer,
     NotificationSerializer,
 )
+from decimal import Decimal
 from django.db.models import Sum
 from django.contrib.auth import get_user_model
 from rest_framework.views import APIView
+
 from django.db import transaction
 import logging
 
@@ -45,7 +54,6 @@ except Exception:  # pragma: no cover - absence tolerated
         except Exception:
             Notification = None
 
-
 def create_notification_safe(**kwargs):
     """Attempt to create a notification without breaking the main flow."""
     if Notification is None:
@@ -55,6 +63,13 @@ def create_notification_safe(**kwargs):
     except Exception:
         logger.exception("Notification creation failed", exc_info=True)
 
+
+WKHTMLTOPDF_PATH = r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
+PDFKIT_CONFIG = None
+try:
+    PDFKIT_CONFIG = pdfkit.configuration(wkhtmltopdf=WKHTMLTOPDF_PATH)
+except Exception:
+    PDFKIT_CONFIG = None
 
 class AdminMetricsView(APIView):
     permission_classes = [IsAdminUser]
@@ -110,12 +125,10 @@ class AdminMetricsView(APIView):
         }
         return Response(response)
 
-
 class PaymentMethodViewSet(viewsets.ModelViewSet):
     queryset = PaymentMethod.objects.all()
     serializer_class = PaymentMethodSerializer
     permission_classes = [AdminOrReadOnly]
-
 
 class ProductViewSet(viewsets.ModelViewSet):
     serializer_class = ProductSerializer
@@ -143,7 +156,6 @@ class ProductViewSet(viewsets.ModelViewSet):
         product.stock = stock
         product.save(update_fields=["stock"])
         return Response({"id": product.id, "stock": product.stock}, status=200)
-
 
 class OrderViewSet(viewsets.ModelViewSet):
     serializer_class = OrderSerializer
@@ -300,6 +312,93 @@ class OrderViewSet(viewsets.ModelViewSet):
             return Response({'detail': 'Error al cancelar el pedido'}, status=500)
 
 
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def invoice_pdf(request, pk):
+    "Generate a PDF invoice for an accepted order using pdfkit (wkhtmltopdf)."
+    order = get_object_or_404(
+        Order.objects.select_related('user').prefetch_related('orderdetail_set__product'),
+        pk=pk,
+    )
+
+    if not (request.user.is_staff or getattr(order, 'user_id', None) == request.user.id):
+        return Response({'detail': 'Forbidden'}, status=403)
+
+    allowed_statuses = {'accepted', 'aceptado', 'processing'}
+    if str(order.status).lower() not in allowed_statuses:
+        return Response({'detail': 'Invoice available only for accepted orders'}, status=400)
+
+    items = []
+    subtotal = Decimal('0.00')
+    for detail in order.orderdetail_set.select_related('product'):
+        subtotal += detail.subtotal or Decimal('0.00')
+        quantity = detail.amount or 0
+        unit_price = (detail.subtotal / quantity) if quantity else detail.subtotal
+        items.append({
+            'name': getattr(detail.product, 'name', 'Producto'),
+            'description': getattr(detail.product, 'description', ''),
+            'quantity': quantity,
+            'unit_price': unit_price,
+            'subtotal': detail.subtotal,
+        })
+
+    total = order.total or Decimal('0.00')
+    shipping_cost = total - subtotal
+    if shipping_cost < Decimal('0.00'):
+        shipping_cost = Decimal('0.00')
+
+    issued_at = getattr(order, 'created_at', None) or order.date
+    invoice_number = f"F-{issued_at:%Y}-{order.id:06d}"
+
+    context = {
+        'order': order,
+        'items': items,
+        'subtotal': subtotal,
+        'shipping_cost': shipping_cost,
+        'total': total,
+        'customer': order.user,
+        'shipping_address': order.shipping_address,
+        'issued_at': issued_at,
+        'invoice_number': invoice_number,
+        'logo_url': request.build_absolute_uri(static('images/logo.png')),
+        'business': {
+            'name': 'HidratArte',
+            'address': 'Gutiérrez 766, San Rafael, Mendoza',
+            'email': 'tomasbajbuj@gmail.com',
+            'phone': '+54 9 260 482 8418',
+        },
+        'request': request,
+    }
+
+    html = render_to_string('invoices/order_invoice.html', context)
+
+    options = {
+        'page-size': 'A4',
+        'margin-top': '15mm',
+        'margin-right': '12mm',
+        'margin-bottom': '15mm',
+        'margin-left': '12mm',
+        'encoding': 'UTF-8',
+        'enable-local-file-access': '',
+    }
+
+    css_path = finders.find('invoices/invoice.css')
+    css_files = [css_path] if css_path else None
+    config_kwargs = {'configuration': PDFKIT_CONFIG} if PDFKIT_CONFIG else {}
+
+    pdf_bytes = pdfkit.from_string(
+        html,
+        False,
+        options=options,
+        css=css_files,
+        **config_kwargs,
+    )
+
+    response = HttpResponse(pdf_bytes, content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="invoice-{order.id}.pdf"'
+    return response
+
+
 class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = NotificationSerializer
     permission_classes = [IsAuthenticated]
@@ -309,16 +408,19 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
             return NotificationSerializer.Meta.model.objects.none()
         return Notification.objects.filter(user=self.request.user).order_by('-created_at')
 
+    @action(detail=False, methods=["post"], url_path="mark-all-read")
+    def mark_all_read(self, request):
+        queryset = self.get_queryset().filter(read=False)
+        updated = queryset.update(read=True)
+        return Response({"updated": updated})
 
 class OrderDetailViewSet(viewsets.ModelViewSet):
     queryset = OrderDetail.objects.all()
     serializer_class = OrderDetailSerializer
 
-
 def get_user_cart(user):
     cart, _ = Cart.objects.get_or_create(user=user)
     return cart
-
 
 class CartViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
@@ -431,7 +533,6 @@ class CartViewSet(viewsets.ViewSet):
                 obj.save()
         return Response(CartSerializer(cart).data, status=200)
 
-
 class UserProductRecordViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = UserProductRecordSerializer
@@ -442,7 +543,6 @@ class UserProductRecordViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
-
 
 class CheckoutView(APIView):
     permission_classes = [IsAuthenticated]
@@ -520,8 +620,8 @@ class CheckoutView(APIView):
                     subtotal += line_total
                     prepared.append({'product': product, 'qty': qty, 'subtotal': line_total})
 
-                # Shipping rule: free over 10000 else 1000
-                shipping = Decimal('0.00') if subtotal > Decimal('10000') else Decimal('1000')
+                # Shipping rule: free over 50000 else 1000
+                shipping = Decimal('0.00') if subtotal > Decimal('50000') else Decimal('1000')
                 total = subtotal + shipping
 
                 # Resolve payment method if provided
@@ -544,6 +644,21 @@ class CheckoutView(APIView):
                         subtotal=p['subtotal'],
                     )
 
+                # Notify admins about the new pending order
+                try:
+                    from django.contrib.auth import get_user_model
+
+                    admins = get_user_model().objects.filter(is_staff=True)
+                    for admin in admins:
+                        if getattr(admin, 'id', None) == getattr(user, 'id', None):
+                            continue
+                        create_notification_safe(
+                            user=admin,
+                            message=f"Nuevo pedido #{order.id} de {getattr(user, 'username', 'cliente')}"
+                        )
+                except Exception:
+                    logger.exception('Failed to notify admins about new order %s', order.id)
+
                 # Do not clear cart nor touch stock; admin must confirm the order
                 return Response({'detail': 'Orden creada y pendiente de confirmación por el administrador', 'order_id': order.id}, status=201)
         except Product.DoesNotExist as e:
@@ -556,3 +671,22 @@ class CheckoutView(APIView):
             # Catch-all to make sure we log unexpected errors with stack trace
             logger.exception('Unhandled exception during checkout for user %s: %s', getattr(user, 'id', None), e)
             return Response({'detail': 'Error interno durante checkout'}, status=500)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

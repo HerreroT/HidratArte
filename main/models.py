@@ -1,4 +1,4 @@
-﻿from django.conf import settings
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
 
@@ -159,9 +159,11 @@ class Notification(models.Model):
     )
     message = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
+    read = models.BooleanField(default=False)
 
     class Meta:
         ordering = ["-created_at"]
 
     def __str__(self):
         return f"Notification({self.user}): {self.message[:40]}"
+

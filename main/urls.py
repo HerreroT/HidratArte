@@ -23,6 +23,7 @@ urlpatterns = [
     path('main/model/', include(router.urls)),
     path('main/model/admin-metrics/', views.AdminMetricsView.as_view(), name='admin-metrics'),
     path('api/admin/metrics/', views.AdminMetricsView.as_view(), name='admin-metrics-v2'),
+    path('main/model/orders/<int:pk>/invoice.pdf', views.invoice_pdf, name='order-invoice'),
     path('main/model/checkout/', views.CheckoutView.as_view(), name='checkout'),
     path('api/cart/', cart_list, name='cart-detail'),
     path('api/cart/items/', add_item, name='cart-add-item'),
@@ -30,3 +31,5 @@ urlpatterns = [
     path('api/cart/clear/', clear_cart, name='cart-clear'),
     path('api/cart/merge/', merge_cart, name='cart-merge'),
 ]
+
+
