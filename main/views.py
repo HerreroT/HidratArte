@@ -462,6 +462,29 @@ def invoice_pdf(request, pk):
             ('RIGHTPADDING', (0, 0), (-1, -1), 10),
         ]))
         elements.append(parties_table)
+        elements.append(Spacer(1, 10))
+        
+        # ============== MÉTODO DE PAGO ==============
+        payment_method_name = 'No especificado'
+        if order.payment_method:
+            payment_method_name = getattr(order.payment_method, 'name', str(order.payment_method))
+        
+        payment_data = [
+            [
+                Paragraph('<font size="9" color="#004E4E"><b>MÉTODO DE PAGO</b></font>', styles['Normal']),
+                Paragraph(f'<font size="9">{payment_method_name}</font>', styles['Normal'])
+            ]
+        ]
+        payment_table = Table(payment_data, colWidths=[250, 250])
+        payment_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#F5F5F5')),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('LEFTPADDING', (0, 0), (-1, -1), 10),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+        ]))
+        elements.append(payment_table)
         elements.append(Spacer(1, 20))
         
         # ============== TABLA DE PRODUCTOS ==============
