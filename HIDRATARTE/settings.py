@@ -193,3 +193,20 @@ SIMPLE_JWT = {
 }
 
 
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+        },
+        "file": {
+            "class": "logging.FileHandler",
+            "filename": os.environ.get("DJANGO_LOG_FILE", "/tmp/django-errors.log"),
+            "mode": "a",
+        },
+    },
+    "root": {"handlers": ["console", "file"], "level": "INFO"},
+}
+
+

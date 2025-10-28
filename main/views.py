@@ -136,6 +136,40 @@ class ProductViewSet(viewsets.ModelViewSet):
     permission_classes = [AdminOrReadOnly]
     parser_classes = (MultiPartParser, FormParser)
 
+    def create(self, request, *args, **kwargs):
+        try:
+            response = super().create(request, *args, **kwargs)
+            logger.info(
+                "Product created (id=%s, image=%s)",
+                response.data.get("id"),
+                response.data.get("image"),
+            )
+            return response
+        except Exception:
+            logger.exception(
+                "Product creation failed. data=%s, files=%s",
+                dict(request.data),
+                {key: file.name for key, file in request.FILES.items()},
+            )
+            raise
+
+    def update(self, request, *args, **kwargs):
+        try:
+            response = super().update(request, *args, **kwargs)
+            logger.info(
+                "Product updated (id=%s, image=%s)",
+                response.data.get("id"),
+                response.data.get("image"),
+            )
+            return response
+        except Exception:
+            logger.exception(
+                "Product update failed. data=%s, files=%s",
+                dict(request.data),
+                {key: file.name for key, file in request.FILES.items()},
+            )
+            raise
+
     def get_queryset(self):
         qs = Product.objects.all()
         category = self.request.query_params.get("category")
