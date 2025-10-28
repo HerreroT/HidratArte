@@ -10,11 +10,7 @@ from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
 from django.templatetags.static import static
 from django.contrib.staticfiles import finders
-from reportlab.lib.pagesizes import A4
-from reportlab.lib import colors
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import mm
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from xhtml2pdf import pisa
 from io import BytesIO
 
 
@@ -333,7 +329,7 @@ class OrderViewSet(viewsets.ModelViewSet):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def invoice_pdf(request, pk):
-    "Generate a PDF invoice for an accepted order using ReportLab."
+    "Generate a PDF invoice for an accepted order using xhtml2pdf (usa el template HTML bonito)."
     order = get_object_or_404(
         Order.objects.select_related('user').prefetch_related('orderdetail_set__product'),
         pk=pk,
@@ -346,10 +342,19 @@ def invoice_pdf(request, pk):
     if str(order.status).lower() not in allowed_statuses:
         return Response({'detail': 'Invoice available only for accepted orders'}, status=400)
 
-    # Preparar datos
+    items = []
     subtotal = Decimal('0.00')
-    for detail in order.orderdetail_set.all():
+    for detail in order.orderdetail_set.select_related('product'):
         subtotal += detail.subtotal or Decimal('0.00')
+        quantity = detail.amount or 0
+        unit_price = (detail.subtotal / quantity) if quantity else detail.subtotal
+        items.append({
+            'name': getattr(detail.product, 'name', 'Producto'),
+            'description': getattr(detail.product, 'description', ''),
+            'quantity': quantity,
+            'unit_price': unit_price,
+            'subtotal': detail.subtotal,
+        })
 
     total = order.total or Decimal('0.00')
     shipping_cost = total - subtotal
@@ -359,83 +364,38 @@ def invoice_pdf(request, pk):
     issued_at = getattr(order, 'created_at', None) or order.date
     invoice_number = f"F-{issued_at:%Y}-{order.id:06d}"
 
-    # Generar PDF con ReportLab
+    context = {
+        'order': order,
+        'items': items,
+        'subtotal': subtotal,
+        'shipping_cost': shipping_cost,
+        'total': total,
+        'customer': order.user,
+        'shipping_address': order.shipping_address,
+        'issued_at': issued_at,
+        'invoice_number': invoice_number,
+        'logo_url': request.build_absolute_uri(static('images/logo.png')),
+        'business': {
+            'name': 'HidratArte',
+            'address': 'Gutiérrez 766, San Rafael, Mendoza',
+            'email': 'tomasbajbuj@gmail.com',
+            'phone': '+54 9 260 482 8418',
+        },
+        'request': request,
+    }
+
+    # Renderizar template HTML
+    html_string = render_to_string('invoices/order_invoice.html', context)
+
+    # Generar PDF con xhtml2pdf
     try:
         buffer = BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=A4, rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=18)
-        elements = []
-        styles = getSampleStyleSheet()
+        pisa_status = pisa.CreatePDF(html_string, dest=buffer)
         
-        # Título
-        title_style = ParagraphStyle(
-            'CustomTitle',
-            parent=styles['Heading1'],
-            fontSize=24,
-            textColor=colors.HexColor('#0a3d3f'),
-            spaceAfter=30,
-            alignment=1  # Center
-        )
-        elements.append(Paragraph('FACTURA', title_style))
-        elements.append(Spacer(1, 12))
+        if pisa_status.err:
+            logger.error(f"Error generando PDF con xhtml2pdf: {pisa_status.err}")
+            return Response({'detail': 'Error al generar el PDF'}, status=500)
         
-        # Info del negocio
-        elements.append(Paragraph('<b>HidratArte</b>', styles['Normal']))
-        elements.append(Paragraph('Gutiérrez 766, San Rafael, Mendoza', styles['Normal']))
-        elements.append(Paragraph('tomasbajbuj@gmail.com', styles['Normal']))
-        elements.append(Paragraph('+54 9 260 482 8418', styles['Normal']))
-        elements.append(Spacer(1, 20))
-        
-        # Info de la factura
-        elements.append(Paragraph(f'<b>Factura N°:</b> {invoice_number}', styles['Normal']))
-        elements.append(Paragraph(f'<b>Fecha:</b> {issued_at.strftime("%d/%m/%Y")}', styles['Normal']))
-        elements.append(Paragraph(f'<b>Cliente:</b> {order.user.username}', styles['Normal']))
-        if order.shipping_address:
-            elements.append(Paragraph(f'<b>Dirección:</b> {order.shipping_address}', styles['Normal']))
-        elements.append(Spacer(1, 20))
-        
-        # Tabla de productos
-        data = [['Producto', 'Cantidad', 'Precio Unit.', 'Subtotal']]
-        for detail in order.orderdetail_set.select_related('product'):
-            quantity = detail.amount or 0
-            unit_price = (detail.subtotal / quantity) if quantity else detail.subtotal
-            data.append([
-                detail.product.name,
-                str(quantity),
-                f'${float(unit_price):.2f}',
-                f'${float(detail.subtotal):.2f}'
-            ])
-        
-        table = Table(data, colWidths=[250, 80, 100, 100])
-        table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#0a3d3f')),
-            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
-            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-            ('GRID', (0, 0), (-1, -1), 1, colors.black)
-        ]))
-        elements.append(table)
-        elements.append(Spacer(1, 20))
-        
-        # Totales
-        totals_data = [
-            ['Subtotal:', f'${float(subtotal):.2f}'],
-            ['Envío:', f'${float(shipping_cost):.2f}'],
-            ['<b>TOTAL:</b>', f'<b>${float(total):.2f}</b>']
-        ]
-        totals_table = Table(totals_data, colWidths=[400, 130])
-        totals_table.setStyle(TableStyle([
-            ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
-            ('FONTNAME', (0, -1), (-1, -1), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, -1), (-1, -1), 14),
-            ('LINEABOVE', (0, -1), (-1, -1), 2, colors.black),
-        ]))
-        elements.append(totals_table)
-        
-        # Construir PDF
-        doc.build(elements)
         pdf_bytes = buffer.getvalue()
         buffer.close()
         
