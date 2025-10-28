@@ -14,6 +14,7 @@ from pathlib import Path
 from datetime import timedelta
 import dj_database_url
 import os
+import sys
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -144,8 +145,18 @@ STORAGES = {
 
 # Media files (User uploaded files)
 MEDIA_URL = '/media/'
-MEDIA_ROOT = Path(os.environ.get("MEDIA_ROOT", BASE_DIR / "media"))
-MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
+MEDIA_ROOT = os.environ.get("MEDIA_ROOT", str(BASE_DIR / "media"))  # ← string
+from pathlib import Path as _P
+_p = _P(MEDIA_ROOT)
+_p.mkdir(parents=True, exist_ok=True)
+
+# Debug temporal (dejar una o dos horas y luego borrar)
+try:
+    (_p / "_write_test.txt").write_text("ok")
+    print(f"[BOOT] MEDIA_ROOT = {MEDIA_ROOT}", file=sys.stderr)
+    print("[BOOT] MEDIA_ROOT write test: OK", file=sys.stderr)
+except Exception as e:
+    print(f"[BOOT] MEDIA_ROOT write test: FAIL -> {e!r}", file=sys.stderr)
 
 
 # Default primary key field type
