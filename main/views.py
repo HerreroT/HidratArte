@@ -465,7 +465,7 @@ def invoice_pdf(request, pk):
         elements.append(Spacer(1, 10))
         
         # ============== MÉTODO DE PAGO ==============
-        payment_method_name = 'No especificado'
+        payment_method_name = 'A confirmar'
         if order.payment_method:
             payment_method_name = getattr(order.payment_method, 'name', str(order.payment_method))
         
