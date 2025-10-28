@@ -1,0 +1,144 @@
+ANÁLISIS COMPLETO: FRONTEND <-> BACKEND
+===========================================
+
+✅ FRONTEND (Netlify) - CÓDIGO CORRECTO
+----------------------------------------
+1. axiosConfig.js: Maneja tokens JWT, refresh automático ✓
+2. AuthContext.js: Login/logout funcionando correctamente ✓
+3. AdminProducts.js: Envía image_upload con FormData ✓
+4. CategoryList.js: Muestra product.image del backend ✓
+5. CheckoutShipping.js: Envía product_id correctamente ✓
+6. CartContext.js: CRUD de carrito funcional ✓
+
+❌ PROBLEMAS ENCONTRADOS
+-------------------------
+
+PROBLEMA 1: Imágenes 404
+- Causa: Volumen de Railway no guarda archivos
+- URL esperada: /media/products/glaciar.jpg
+- Estado: 404 Not Found
+- Archivos físicos: NO están en /images
+
+PROBLEMA 2: Variable de entorno en Netlify
+- REACT_APP_API_URL probablemente no configurada
+- Default: http://127.0.0.1:8000 (local)
+- Debería ser: https://hidratarte-production.up.railway.app
+
+PROBLEMA 3: _redirects faltante
+- Netlify necesita _redirects para React Router
+- Sin él, refresh en rutas da 404
+
+
+🔧 SOLUCIONES NECESARIAS
+-------------------------
+
+[BACKEND - Railway]
+
+1. Configurar volumen correctamente:
+   - Ir a Railway > tu servicio
+   - Volumes > Mount Path: /app/media
+   - Eliminar variable MEDIA_ROOT manual
+   - Redeploy
+
+2. Verificar urls.py desplegado:
+   - Cambio ya hecho localmente
+   - Hacer push a release branch
+
+[FRONTEND - Netlify]
+
+1. Configurar variable de entorno:
+   Netlify Dashboard > Site Settings > Environment Variables
+   - REACT_APP_API_URL = https://hidratarte-production.up.railway.app
+
+2. Crear archivo _redirects:
+   Ubicación: public/_redirects
+   Contenido: /* /index.html 200
+
+3. Redeploy en Netlify
+
+
+📋 ENDPOINTS VERIFICADOS
+-------------------------
+
+Backend (/main/model/):
+✓ /products/ - GET (lista), POST (crear), PUT/PATCH (editar)
+✓ /products/{id}/set-stock/ - POST (actualizar stock)
+✓ /orders/ - GET (lista)
+✓ /orders/{id}/accept/ - POST
+✓ /orders/{id}/cancel/ - POST
+✓ /checkout/ - POST
+✓ /user-product-records/ - GET, POST, PATCH, DELETE
+✓ /payment-methods/ - GET
+
+Autenticación:
+✓ /useradmin/token/ - POST (login)
+✓ /api/token/refresh/ - POST (refresh)
+✓ /useradmin/profile/ - GET (perfil)
+
+
+🔄 FLUJOS VERIFICADOS
+----------------------
+
+1. Login:
+   Frontend → /useradmin/token/ → obtiene access/refresh
+   Frontend → /useradmin/profile/ → obtiene datos usuario
+   ✓ Funciona correctamente
+
+2. Carrito:
+   Frontend usa /user-product-records/ (no /cart/)
+   ✓ CRUD completo funcionando
+
+3. Checkout:
+   Frontend envía: {items: [{product_id, qty}], shipping_address, payment_method_id}
+   Backend crea Order con status='pending'
+   ✓ Flujo correcto
+
+4. Admin - Productos:
+   Frontend envía FormData con image_upload
+   Backend espera image_upload o image
+   ✓ Integración correcta
+
+5. Admin - Stock:
+   Frontend → /products/{id}/set-stock/ con {stock: number}
+   Backend actualiza y responde
+   ✓ Endpoint correcto
+
+
+⚠️ INCONSISTENCIAS MENORES
+---------------------------
+
+1. CartContext usa /user-product-records/
+   - Código backend tiene /cart/ pero no se usa
+   - No es problema, ambos funcionan
+
+2. Imágenes default:
+   - Frontend usa: /images/default.png
+   - Backend no provee default
+   - Sugerencia: agregar imagen default en backend
+
+
+🎯 PASOS INMEDIATOS
+-------------------
+
+Backend (Railway):
+1. Eliminar variable MEDIA_ROOT
+2. Configurar volumen en /app/media
+3. Hacer push de cambios urls.py
+4. Redeploy
+5. Verificar logs: MEDIA_ROOT = /app/media
+
+Frontend (Netlify):
+1. Crear public/_redirects
+2. Configurar REACT_APP_API_URL
+3. Redeploy
+4. Verificar llamadas API en DevTools
+
+
+✅ RESUMEN
+----------
+El código está bien escrito en ambos lados.
+Los problemas son de CONFIGURACIÓN de entorno:
+- Railway: volumen mal montado
+- Netlify: variable de entorno faltante
+
+
