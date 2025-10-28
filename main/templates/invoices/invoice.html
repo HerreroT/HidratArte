@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Factura {{ invoice_number }}</title>
+</head>
+<body>
+    <div class="header">
+        <div class="logo-section">
+            <h1>🧴 HidratArte</h1>
+        </div>
+        <div class="invoice-info">
+            <h2>Factura {{ invoice_number }}</h2>
+            <p>Pedido #{{ order.id }} | Fecha de emisión: {{ issued_at|date:"d/m/Y" }}</p>
+        </div>
+    </div>
+
+    <div class="parties">
+        <div class="party">
+            <h3>Vendedor</h3>
+            <p>
+                <strong>HidratArte</strong><br>
+                {{ company.address }}<br>
+                {{ company.email }}<br>
+                {{ company.phone }}
+            </p>
+        </div>
+        <div class="party">
+            <h3>Cliente</h3>
+            <p>
+                <strong>{{ order.user.username }}</strong><br>
+                {% if order.shipping_address %}
+                {{ order.shipping_address }}
+                {% endif %}
+            </p>
+        </div>
+    </div>
+
+    <table class="products-table">
+        <thead>
+            <tr>
+                <th>Producto</th>
+                <th>Cantidad</th>
+                <th>Precio unitario</th>
+                <th>Subtotal</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in items %}
+            <tr>
+                <td>{{ item.name }}</td>
+                <td>{{ item.quantity }}</td>
+                <td>${{ item.unit_price|floatformat:2 }}</td>
+                <td>${{ item.subtotal|floatformat:2 }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <div class="totals-section">
+        <div class="totals-box">
+            <div class="totals-row">
+                <span>Subtotal productos:</span>
+                <span>${{ subtotal|floatformat:2 }}</span>
+            </div>
+            <div class="totals-row">
+                <span>Envío:</span>
+                <span>${{ shipping_cost|floatformat:2 }}</span>
+            </div>
+            <div class="totals-row total-final">
+                <span>Total:</span>
+                <span>${{ total|floatformat:2 }}</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        Gracias por tu compra - hidratarte.com
+    </div>
+</body>
+</html>
+
+
