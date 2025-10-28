@@ -148,15 +148,37 @@ STORAGES = {
 
 # Media files (User uploaded files)
 MEDIA_URL = '/media/'
-MEDIA_ROOT = os.environ.get("MEDIA_ROOT", str(BASE_DIR / "media"))  # ← string
+
+# En Railway: si existe RAILWAY_VOLUME_MOUNT_PATH, usarlo
+# Si existe MEDIA_ROOT como var de entorno, usarlo
+# Caso contrario, usar BASE_DIR/media
+RAILWAY_MOUNT = os.environ.get('RAILWAY_VOLUME_MOUNT_PATH')
+MEDIA_ENV = os.environ.get('MEDIA_ROOT')
+
+if RAILWAY_MOUNT:
+    # Railway provee el path del volumen montado
+    MEDIA_ROOT = RAILWAY_MOUNT
+elif MEDIA_ENV:
+    # Variable de entorno configurada manualmente
+    MEDIA_ROOT = MEDIA_ENV
+else:
+    # Desarrollo local
+    MEDIA_ROOT = str(BASE_DIR / "media")
+
+# Asegurarse de que el directorio exista
 from pathlib import Path as _P
 _p = _P(MEDIA_ROOT)
 _p.mkdir(parents=True, exist_ok=True)
+
+# Crear subdirectorios necesarios
+(_p / "products").mkdir(parents=True, exist_ok=True)
 
 # Debug temporal (dejar una o dos horas y luego borrar)
 try:
     (_p / "_write_test.txt").write_text("ok")
     print(f"[BOOT] MEDIA_ROOT = {MEDIA_ROOT}", file=sys.stderr)
+    print(f"[BOOT] MEDIA_ROOT exists: {_p.exists()}", file=sys.stderr)
+    print(f"[BOOT] MEDIA_ROOT is writable: {os.access(str(_p), os.W_OK)}", file=sys.stderr)
     print("[BOOT] MEDIA_ROOT write test: OK", file=sys.stderr)
 except Exception as e:
     print(f"[BOOT] MEDIA_ROOT write test: FAIL -> {e!r}", file=sys.stderr)

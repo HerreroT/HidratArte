@@ -136,6 +136,22 @@ class ProductViewSet(viewsets.ModelViewSet):
     permission_classes = [AdminOrReadOnly]
     parser_classes = (MultiPartParser, FormParser)
 
+    def create(self, request, *args, **kwargs):
+        logger.debug(
+            "Product create payload: data=%s files=%s",
+            dict(request.data),
+            {key: file.name for key, file in request.FILES.items()},
+        )
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request, *args, **kwargs):
+        logger.debug(
+            "Product update payload: data=%s files=%s",
+            dict(request.data),
+            {key: file.name for key, file in request.FILES.items()},
+        )
+        return super().update(request, *args, **kwargs)
+
     def get_queryset(self):
         qs = Product.objects.all()
         category = self.request.query_params.get("category")

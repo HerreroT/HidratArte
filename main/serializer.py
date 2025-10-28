@@ -9,48 +9,39 @@ class PaymentMethodSerializer(serializers.ModelSerializer):
 
 
 class ProductSerializer(serializers.ModelSerializer):
-    """
-    Acepta archivo en:
-      - image  (write-only, para que el front pueda mandar `image`)
-      - image_upload (write-only, compat con tu versión anterior)
-    Expone URL absoluta en:
-      - image_url (read-only)
-    """
-    image = serializers.ImageField(write_only=True, required=False, allow_null=True)
+    # Para lectura: URL completa
+    image = serializers.SerializerMethodField(read_only=True)
+    # Para escritura: archivo de imagen (acepta image_upload o image)
     image_upload = serializers.ImageField(write_only=True, required=False, allow_null=True)
-
-    image_url = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Product
         fields = [
             'id', 'name', 'description', 'price', 'stock', 'category',
-            'image', 'image_upload',   # entrada de archivo (no se devuelven)
-            'image_url',               # salida con URL absoluta
+            'image', 'image_upload',
         ]
 
-    def get_image_url(self, obj):
-        """
-        Devuelve URL absoluta si hay imagen; None si no.
-        Evita errores si la imagen no existe o no tiene .url.
-        """
-        try:
-            if obj.image and getattr(obj.image, 'url', None):
-                request = self.context.get('request')
-                url = obj.image.url
-                return request.build_absolute_uri(url) if request else url
-        except Exception:
-            return None
+    def get_image(self, obj):
+        if obj.image and getattr(obj.image, 'url', None):
+            request = self.context.get('request')
+            url = obj.image.url
+            return request.build_absolute_uri(url) if request else url
         return None
 
     def _pop_incoming_image(self, validated_data):
         """
-        Prioridad: si vienen ambas, usa `image` y caso contrario `image_upload`.
+        Prioridad: data validada -> image_upload.
+        Si no vino, revisamos archivos crudos por compatibilidad (image_upload / image).
         """
-        file_obj = validated_data.pop('image', None)
-        if file_obj is None:
-            file_obj = validated_data.pop('image_upload', None)
-        return file_obj
+        file_obj = validated_data.pop('image_upload', None)
+        if file_obj:
+            return file_obj
+
+        request = self.context.get('request')
+        if request:
+            # DRF podría no incluir el archivo en validated_data si el campo es write_only
+            return request.FILES.get('image_upload') or request.FILES.get('image')
+        return None
 
     def create(self, validated_data):
         file_obj = self._pop_incoming_image(validated_data)
