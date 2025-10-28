@@ -1,4 +1,4 @@
-﻿from rest_framework import status, viewsets
+from rest_framework import status, viewsets
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.response import Response
@@ -135,40 +135,6 @@ class ProductViewSet(viewsets.ModelViewSet):
     serializer_class = ProductSerializer
     permission_classes = [AdminOrReadOnly]
     parser_classes = (MultiPartParser, FormParser)
-
-    def create(self, request, *args, **kwargs):
-        try:
-            response = super().create(request, *args, **kwargs)
-            logger.info(
-                "Product created (id=%s, image=%s)",
-                response.data.get("id"),
-                response.data.get("image"),
-            )
-            return response
-        except Exception:
-            logger.exception(
-                "Product creation failed. data=%s, files=%s",
-                dict(request.data),
-                {key: file.name for key, file in request.FILES.items()},
-            )
-            raise
-
-    def update(self, request, *args, **kwargs):
-        try:
-            response = super().update(request, *args, **kwargs)
-            logger.info(
-                "Product updated (id=%s, image=%s)",
-                response.data.get("id"),
-                response.data.get("image"),
-            )
-            return response
-        except Exception:
-            logger.exception(
-                "Product update failed. data=%s, files=%s",
-                dict(request.data),
-                {key: file.name for key, file in request.FILES.items()},
-            )
-            raise
 
     def get_queryset(self):
         qs = Product.objects.all()
