@@ -19,11 +19,24 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from django.views.static import serve
+from django.http import FileResponse
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
     TokenVerifyView,
 )
+import os
+
+def serve_media(request, path):
+    """Servir archivos media con headers CORS correctos."""
+    file_path = os.path.join(settings.MEDIA_ROOT, path)
+    if os.path.exists(file_path):
+        response = FileResponse(open(file_path, 'rb'))
+        response['Access-Control-Allow-Origin'] = '*'
+        response['Cross-Origin-Resource-Policy'] = 'cross-origin'
+        return response
+    from django.http import HttpResponseNotFound
+    return HttpResponseNotFound('Archivo no encontrado')
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -38,15 +51,14 @@ urlpatterns = [
     path('api/token/verify/', TokenVerifyView.as_view(), name='token_verify'),
 ]
 
-# Servir archivos media (útil para despliegues simples sin CDN separado)
+# Servir archivos media con headers CORS
 if settings.MEDIA_URL and settings.MEDIA_ROOT:
-    # En desarrollo: usar static()
     if settings.DEBUG:
         urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     else:
-        # En producción: usar serve() directamente
+        # En producción: usar vista personalizada con CORS
         urlpatterns += [
-            path(f'{settings.MEDIA_URL}<path:path>', serve, {'document_root': settings.MEDIA_ROOT}),
+            path('media/<path:path>', serve_media, name='serve_media'),
         ]
 
 
