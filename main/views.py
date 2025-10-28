@@ -8,18 +8,15 @@ from django.apps import apps
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
-from django.templatetags.static import static
-from django.contrib.staticfiles import finders
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
 from io import BytesIO
 import os
+from django.conf import settings
 
 
 from .models import (
@@ -337,7 +334,7 @@ class OrderViewSet(viewsets.ModelViewSet):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def invoice_pdf(request, pk):
-    "Generate a PDF invoice for an accepted order using xhtml2pdf (usa el template HTML bonito)."
+    "Generate a PDF invoice for an accepted order using ReportLab with professional design."
     order = get_object_or_404(
         Order.objects.select_related('user').prefetch_related('orderdetail_set__product'),
         pk=pk,
@@ -382,7 +379,6 @@ def invoice_pdf(request, pk):
         'shipping_address': order.shipping_address,
         'issued_at': issued_at,
         'invoice_number': invoice_number,
-        'logo_url': request.build_absolute_uri(static('images/logo.png')),
         'business': {
             'name': 'HidratArte',
             'address': 'Gutiérrez 766, San Rafael, Mendoza',
@@ -413,16 +409,30 @@ def invoice_pdf(request, pk):
         gray_border = colors.HexColor('#E0E0E0')
         
         # ============== HEADER: Logo + Info Factura ==============
+        # Cargar logo desde el filesystem
+        logo_path = os.path.join(settings.BASE_DIR, 'main', 'static', 'images', 'logo.png')
+        logo_element = None
+        if os.path.exists(logo_path):
+            try:
+                logo_element = RLImage(logo_path, width=40*mm, height=40*mm, kind='proportional')
+            except Exception as e:
+                logger.warning(f"No se pudo cargar el logo: {e}")
+                # Fallback al texto con emoji
+                logo_element = Paragraph('<font size="20" color="#004E4E"><b>🧴 HidratArte</b></font>', styles['Normal'])
+        else:
+            # Fallback si no existe el archivo
+            logo_element = Paragraph('<font size="20" color="#004E4E"><b>🧴 HidratArte</b></font>', styles['Normal'])
+        
         header_data = [
             [
-                Paragraph('<font size="24" color="#004E4E"><b>🧴 HidratArte</b></font>', styles['Normal']),
+                logo_element,
                 Paragraph(f'<font size="16" color="#004E4E"><b>Factura {invoice_number}</b></font><br/><font size="9" color="#666666">Pedido #{order.id} | Fecha de emisión: {issued_at.strftime("%d/%m/%Y")}</font>', 
                          ParagraphStyle('InvoiceInfo', parent=styles['Normal'], alignment=TA_RIGHT))
             ]
         ]
         header_table = Table(header_data, colWidths=[250, 250])
         header_table.setStyle(TableStyle([
-            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
             ('LINEBELOW', (0, 0), (-1, -1), 3, brand_primary),
         ]))
