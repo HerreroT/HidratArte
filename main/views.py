@@ -10,7 +10,7 @@ from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
 from django.templatetags.static import static
 from django.contrib.staticfiles import finders
-import pdfkit
+from weasyprint import HTML, CSS
 
 
 from .models import (
@@ -65,12 +65,7 @@ def create_notification_safe(**kwargs):
         logger.exception("Notification creation failed", exc_info=True)
 
 
-WKHTMLTOPDF_PATH = r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
-PDFKIT_CONFIG = None
-try:
-    PDFKIT_CONFIG = pdfkit.configuration(wkhtmltopdf=WKHTMLTOPDF_PATH)
-except Exception:
-    PDFKIT_CONFIG = None
+# WeasyPrint no necesita configuración externa
 
 class AdminMetricsView(APIView):
     permission_classes = [IsAdminUser]
@@ -333,7 +328,7 @@ class OrderViewSet(viewsets.ModelViewSet):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def invoice_pdf(request, pk):
-    "Generate a PDF invoice for an accepted order using pdfkit (wkhtmltopdf)."
+    "Generate a PDF invoice for an accepted order using WeasyPrint."
     order = get_object_or_404(
         Order.objects.select_related('user').prefetch_related('orderdetail_set__product'),
         pk=pk,
@@ -388,29 +383,20 @@ def invoice_pdf(request, pk):
         'request': request,
     }
 
-    html = render_to_string('invoices/order_invoice.html', context)
+    html_string = render_to_string('invoices/order_invoice.html', context)
 
-    options = {
-        'page-size': 'A4',
-        'margin-top': '15mm',
-        'margin-right': '12mm',
-        'margin-bottom': '15mm',
-        'margin-left': '12mm',
-        'encoding': 'UTF-8',
-        'enable-local-file-access': '',
-    }
-
-    css_path = finders.find('invoices/invoice.css')
-    css_files = [css_path] if css_path else None
-    config_kwargs = {'configuration': PDFKIT_CONFIG} if PDFKIT_CONFIG else {}
-
-    pdf_bytes = pdfkit.from_string(
-        html,
-        False,
-        options=options,
-        css=css_files,
-        **config_kwargs,
-    )
+    # Generar PDF con WeasyPrint
+    try:
+        css_path = finders.find('invoices/invoice.css')
+        if css_path:
+            pdf_bytes = HTML(string=html_string, base_url=request.build_absolute_uri('/')).write_pdf(
+                stylesheets=[CSS(filename=css_path)]
+            )
+        else:
+            pdf_bytes = HTML(string=html_string, base_url=request.build_absolute_uri('/')).write_pdf()
+    except Exception as e:
+        logger.error(f"Error generando PDF: {e}")
+        return Response({'detail': 'Error al generar el PDF'}, status=500)
 
     response = HttpResponse(pdf_bytes, content_type='application/pdf')
     response['Content-Disposition'] = f'attachment; filename="invoice-{order.id}.pdf"'

@@ -13,7 +13,6 @@ inflection==0.5.1
 jsonschema==4.23.0
 jsonschema-specifications==2024.10.1
 mysqlclient==2.2.7
-pdfkit>=1.0.0
 pillow==11.2.1
 pycparser==2.22
 PyJWT==2.9.0
@@ -25,4 +24,5 @@ sqlparse==0.5.3
 typing_extensions==4.14.1
 tzdata==2025.2
 uritemplate==4.1.1
+weasyprint>=61.0
 whitenoise==6.9.0
