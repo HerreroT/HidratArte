@@ -10,7 +10,12 @@ from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
 from django.templatetags.static import static
 from django.contrib.staticfiles import finders
-from xhtml2pdf import pisa
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from io import BytesIO
 
 
@@ -384,84 +389,99 @@ def invoice_pdf(request, pk):
         'request': request,
     }
 
-    # Generar HTML inline simple para xhtml2pdf
-    html_string = f'''
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <style>
-            body {{ font-family: Arial, sans-serif; margin: 40px; color: #333; }}
-            h1 {{ color: #0a3d3f; text-align: center; margin-bottom: 30px; }}
-            .header {{ margin-bottom: 30px; }}
-            .info-section {{ margin-bottom: 20px; }}
-            .info-section strong {{ color: #0a3d3f; }}
-            table {{ width: 100%; border-collapse: collapse; margin: 20px 0; }}
-            th {{ background-color: #0a3d3f; color: white; padding: 10px; text-align: left; }}
-            td {{ padding: 10px; border-bottom: 1px solid #ddd; }}
-            .totals {{ text-align: right; margin-top: 20px; }}
-            .totals-row {{ padding: 5px 0; }}
-            .total-final {{ font-size: 18px; font-weight: bold; color: #0a3d3f; margin-top: 10px; padding-top: 10px; border-top: 2px solid #0a3d3f; }}
-        </style>
-    </head>
-    <body>
-        <h1>FACTURA</h1>
-        
-        <div class="header">
-            <div class="info-section">
-                <strong>HidratArte</strong><br>
-                Gutiérrez 766, San Rafael, Mendoza<br>
-                tomasbajbuj@gmail.com<br>
-                +54 9 260 482 8418
-            </div>
-            
-            <div class="info-section">
-                <strong>Factura N°:</strong> {invoice_number}<br>
-                <strong>Fecha:</strong> {issued_at.strftime("%d/%m/%Y")}<br>
-                <strong>Cliente:</strong> {order.user.username}<br>
-                {f'<strong>Dirección:</strong> {order.shipping_address}<br>' if order.shipping_address else ''}
-            </div>
-        </div>
-        
-        <table>
-            <thead>
-                <tr>
-                    <th>Producto</th>
-                    <th>Cantidad</th>
-                    <th>Precio Unit.</th>
-                    <th>Subtotal</th>
-                </tr>
-            </thead>
-            <tbody>
-                {''.join([f'''
-                <tr>
-                    <td>{item['name']}</td>
-                    <td>{item['quantity']}</td>
-                    <td>${float(item['unit_price']):.2f}</td>
-                    <td>${float(item['subtotal']):.2f}</td>
-                </tr>
-                ''' for item in items])}
-            </tbody>
-        </table>
-        
-        <div class="totals">
-            <div class="totals-row">Subtotal: ${float(subtotal):.2f}</div>
-            <div class="totals-row">Envío: ${float(shipping_cost):.2f}</div>
-            <div class="total-final">TOTAL: ${float(total):.2f}</div>
-        </div>
-    </body>
-    </html>
-    '''
-
-    # Generar PDF con xhtml2pdf
+    # Generar PDF con ReportLab (diseño mejorado)
     try:
         buffer = BytesIO()
-        pisa_status = pisa.CreatePDF(html_string, dest=buffer)
+        doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=20*mm, bottomMargin=20*mm, leftMargin=20*mm, rightMargin=20*mm)
+        elements = []
+        styles = getSampleStyleSheet()
         
-        if pisa_status.err:
-            logger.error(f"Error generando PDF con xhtml2pdf: {pisa_status.err}")
-            return Response({'detail': 'Error al generar el PDF'}, status=500)
+        # Color corporativo
+        brand_color = colors.HexColor('#0a3d3f')
         
+        # Título principal
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=28,
+            textColor=brand_color,
+            spaceAfter=20,
+            alignment=TA_CENTER,
+            fontName='Helvetica-Bold'
+        )
+        elements.append(Paragraph('FACTURA', title_style))
+        elements.append(Spacer(1, 10))
+        
+        # Info empresa y cliente en tabla de 2 columnas
+        info_data = [
+            [
+                Paragraph('<b>HidratArte</b><br/>Gutiérrez 766, San Rafael, Mendoza<br/>tomasbajbuj@gmail.com<br/>+54 9 260 482 8418', styles['Normal']),
+                Paragraph(f'<b>Factura N°:</b> {invoice_number}<br/><b>Fecha:</b> {issued_at.strftime("%d/%m/%Y")}<br/><b>Cliente:</b> {order.user.username}<br/>{f"<b>Dirección:</b> {order.shipping_address}" if order.shipping_address else ""}', styles['Normal'])
+            ]
+        ]
+        info_table = Table(info_data, colWidths=[250, 250])
+        info_table.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 0),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 0),
+        ]))
+        elements.append(info_table)
+        elements.append(Spacer(1, 20))
+        
+        # Tabla de productos
+        data = [['Producto', 'Cantidad', 'Precio Unit.', 'Subtotal']]
+        for item in items:
+            data.append([
+                item['name'],
+                str(item['quantity']),
+                f'${float(item["unit_price"]):.2f}',
+                f'${float(item["subtotal"]):.2f}'
+            ])
+        
+        products_table = Table(data, colWidths=[230, 80, 100, 90])
+        products_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), brand_color),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+            ('TOPPADDING', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.Color(0.95, 0.95, 0.95)]),
+            ('TOPPADDING', (0, 1), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+        ]))
+        elements.append(products_table)
+        elements.append(Spacer(1, 20))
+        
+        # Totales con estilo mejorado
+        totals_data = [
+            ['', 'Subtotal:', f'${float(subtotal):.2f}'],
+            ['', 'Envío:', f'${float(shipping_cost):.2f}'],
+            ['', '', ''],  # Espacio
+            ['', 'TOTAL:', f'${float(total):.2f}']
+        ]
+        totals_table = Table(totals_data, colWidths=[230, 170, 100])
+        totals_table.setStyle(TableStyle([
+            ('ALIGN', (1, 0), (-1, -1), 'RIGHT'),
+            ('FONTNAME', (1, 3), (-1, 3), 'Helvetica-Bold'),
+            ('FONTSIZE', (1, 3), (-1, 3), 16),
+            ('TEXTCOLOR', (1, 3), (-1, 3), brand_color),
+            ('LINEABOVE', (1, 3), (-1, 3), 2, brand_color),
+            ('TOPPADDING', (1, 3), (-1, 3), 10),
+        ]))
+        elements.append(totals_table)
+        
+        # Footer
+        elements.append(Spacer(1, 30))
+        footer_style = ParagraphStyle('Footer', parent=styles['Normal'], fontSize=9, textColor=colors.grey, alignment=TA_CENTER)
+        elements.append(Paragraph('Gracias por tu compra • HidratArte', footer_style))
+        
+        # Construir PDF
+        doc.build(elements)
         pdf_bytes = buffer.getvalue()
         buffer.close()
         
