@@ -10,8 +10,16 @@ from django.shortcuts import get_object_or_404
 from django.template.loader import render_to_string
 from django.templatetags.static import static
 from django.contrib.staticfiles import finders
-from weasyprint import HTML, CSS
+from reportlab.lib.pagesizes import A4
+from reportlab.lib import colors
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from io import BytesIO
+import os
 
 
 from .models import (
@@ -384,176 +392,152 @@ def invoice_pdf(request, pk):
         'request': request,
     }
 
-    # CSS inline para el PDF
-    css_string = '''
-        @page {
-            size: A4;
-            margin: 1.5cm;
-        }
-        
-        body {
-            font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            color: #333;
-            line-height: 1.6;
-            margin: 0;
-            padding: 0;
-        }
-        
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 2rem;
-            padding-bottom: 1rem;
-            border-bottom: 3px solid #004E4E;
-        }
-        
-        .logo-section h1 {
-            color: #004E4E;
-            font-size: 2rem;
-            margin: 0;
-            font-weight: 700;
-        }
-        
-        .invoice-info {
-            text-align: right;
-        }
-        
-        .invoice-info h2 {
-            color: #004E4E;
-            font-size: 1.5rem;
-            margin: 0 0 0.5rem 0;
-            font-weight: 600;
-        }
-        
-        .invoice-info p {
-            margin: 0;
-            color: #666;
-            font-size: 0.9rem;
-        }
-        
-        .parties {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 2rem;
-            background-color: #EAF4F4;
-            padding: 1rem;
-            border-radius: 8px;
-        }
-        
-        .party {
-            flex: 1;
-        }
-        
-        .party h3 {
-            color: #004E4E;
-            font-size: 0.9rem;
-            text-transform: uppercase;
-            margin: 0 0 0.5rem 0;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-        }
-        
-        .party p {
-            margin: 0;
-            font-size: 0.85rem;
-            line-height: 1.5;
-        }
-        
-        .products-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 2rem;
-        }
-        
-        .products-table thead tr {
-            background-color: #004E4E;
-            color: white;
-        }
-        
-        .products-table th {
-            padding: 0.75rem;
-            text-align: left;
-            font-weight: 600;
-            font-size: 0.9rem;
-        }
-        
-        .products-table th:nth-child(2),
-        .products-table th:nth-child(3),
-        .products-table th:nth-child(4) {
-            text-align: right;
-        }
-        
-        .products-table tbody tr:nth-child(even) {
-            background-color: #F9FCFC;
-        }
-        
-        .products-table tbody tr:nth-child(odd) {
-            background-color: white;
-        }
-        
-        .products-table td {
-            padding: 0.75rem;
-            border-bottom: 1px solid #E0E0E0;
-            font-size: 0.85rem;
-        }
-        
-        .products-table td:nth-child(2),
-        .products-table td:nth-child(3),
-        .products-table td:nth-child(4) {
-            text-align: right;
-        }
-        
-        .totals-section {
-            display: flex;
-            justify-content: flex-end;
-            margin-bottom: 2rem;
-        }
-        
-        .totals-box {
-            width: 300px;
-            background-color: #EAF4F4;
-            padding: 1rem;
-            border-radius: 8px;
-        }
-        
-        .totals-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 0.5rem 0;
-            font-size: 0.9rem;
-        }
-        
-        .totals-row.total-final {
-            border-top: 2px solid #004E4E;
-            margin-top: 0.5rem;
-            padding-top: 0.75rem;
-            font-weight: 700;
-            font-size: 1.1rem;
-            color: #004E4E;
-        }
-        
-        .footer {
-            text-align: center;
-            margin-top: 3rem;
-            padding-top: 1rem;
-            border-top: 1px solid #E0E0E0;
-            color: #666;
-            font-size: 0.85rem;
-        }
-    '''
-    
-    # Renderizar HTML con el template
+    # Generar PDF con ReportLab - Diseño profesional
     try:
-        html_string = render_to_string('invoices/invoice.html', context)
-        
-        # Generar PDF con WeasyPrint
-        pdf_bytes = HTML(string=html_string).write_pdf(
-            stylesheets=[CSS(string=css_string)]
+        buffer = BytesIO()
+        doc = SimpleDocTemplate(
+            buffer, 
+            pagesize=A4, 
+            topMargin=15*mm, 
+            bottomMargin=15*mm, 
+            leftMargin=20*mm, 
+            rightMargin=20*mm
         )
+        elements = []
+        styles = getSampleStyleSheet()
+        
+        # Colores corporativos HidratArte
+        brand_primary = colors.HexColor('#004E4E')
+        brand_light = colors.HexColor('#EAF4F4')
+        gray_text = colors.HexColor('#666666')
+        gray_border = colors.HexColor('#E0E0E0')
+        
+        # ============== HEADER: Logo + Info Factura ==============
+        header_data = [
+            [
+                Paragraph('<font size="24" color="#004E4E"><b>🧴 HidratArte</b></font>', styles['Normal']),
+                Paragraph(f'<font size="16" color="#004E4E"><b>Factura {invoice_number}</b></font><br/><font size="9" color="#666666">Pedido #{order.id} | Fecha de emisión: {issued_at.strftime("%d/%m/%Y")}</font>', 
+                         ParagraphStyle('InvoiceInfo', parent=styles['Normal'], alignment=TA_RIGHT))
+            ]
+        ]
+        header_table = Table(header_data, colWidths=[250, 250])
+        header_table.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+            ('LINEBELOW', (0, 0), (-1, -1), 3, brand_primary),
+        ]))
+        elements.append(header_table)
+        elements.append(Spacer(1, 15))
+        
+        # ============== VENDEDOR / CLIENTE ==============
+        parties_data = [
+            [
+                Paragraph('<font size="9" color="#004E4E"><b>VENDEDOR</b></font>', styles['Normal']),
+                Paragraph('<font size="9" color="#004E4E"><b>CLIENTE</b></font>', styles['Normal'])
+            ],
+            [
+                Paragraph(f'<font size="9"><b>HidratArte</b><br/>Gutiérrez 766, San Rafael, Mendoza<br/>tomasbajbuj@gmail.com<br/>+54 9 260 482 8418</font>', styles['Normal']),
+                Paragraph(f'<font size="9"><b>{order.user.username}</b><br/>{order.shipping_address if order.shipping_address else "Sin dirección registrada"}</font>', styles['Normal'])
+            ]
+        ]
+        parties_table = Table(parties_data, colWidths=[250, 250])
+        parties_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), brand_light),
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('TOPPADDING', (0, 0), (-1, 0), 5),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 3),
+            ('TOPPADDING', (0, 1), (-1, 1), 8),
+            ('BOTTOMPADDING', (0, 1), (-1, 1), 10),
+            ('LEFTPADDING', (0, 0), (-1, -1), 10),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+        ]))
+        elements.append(parties_table)
+        elements.append(Spacer(1, 20))
+        
+        # ============== TABLA DE PRODUCTOS ==============
+        products_data = [
+            [
+                Paragraph('<font size="10" color="white"><b>Producto</b></font>', styles['Normal']),
+                Paragraph('<font size="10" color="white"><b>Cantidad</b></font>', ParagraphStyle('HeaderRight', parent=styles['Normal'], alignment=TA_RIGHT)),
+                Paragraph('<font size="10" color="white"><b>Precio unitario</b></font>', ParagraphStyle('HeaderRight', parent=styles['Normal'], alignment=TA_RIGHT)),
+                Paragraph('<font size="10" color="white"><b>Subtotal</b></font>', ParagraphStyle('HeaderRight', parent=styles['Normal'], alignment=TA_RIGHT))
+            ]
+        ]
+        
+        for idx, item in enumerate(items):
+            products_data.append([
+                Paragraph(f'<font size="9">{item["name"]}</font>', styles['Normal']),
+                Paragraph(f'<font size="9">{item["quantity"]}</font>', ParagraphStyle('CellRight', parent=styles['Normal'], alignment=TA_RIGHT)),
+                Paragraph(f'<font size="9">${float(item["unit_price"]):.2f}</font>', ParagraphStyle('CellRight', parent=styles['Normal'], alignment=TA_RIGHT)),
+                Paragraph(f'<font size="9">${float(item["subtotal"]):.2f}</font>', ParagraphStyle('CellRight', parent=styles['Normal'], alignment=TA_RIGHT))
+            ])
+        
+        products_table = Table(products_data, colWidths=[240, 70, 100, 90])
+        
+        # Estilos de la tabla con filas alternadas
+        table_styles = [
+            ('BACKGROUND', (0, 0), (-1, 0), brand_primary),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, 0), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 10),
+            ('TOPPADDING', (0, 1), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 1), (-1, -1), 8),
+            ('GRID', (0, 0), (-1, -1), 0.5, gray_border),
+        ]
+        
+        # Filas alternadas
+        for i in range(1, len(products_data)):
+            if i % 2 == 0:
+                table_styles.append(('BACKGROUND', (0, i), (-1, i), colors.HexColor('#F9FCFC')))
+            else:
+                table_styles.append(('BACKGROUND', (0, i), (-1, i), colors.white))
+        
+        products_table.setStyle(TableStyle(table_styles))
+        elements.append(products_table)
+        elements.append(Spacer(1, 20))
+        
+        # ============== TOTALES (Box a la derecha) ==============
+        totals_data = [
+            ['', '', 'Subtotal productos:', f'${float(subtotal):.2f}'],
+            ['', '', 'Envío:', f'${float(shipping_cost):.2f}'],
+            ['', '', '', ''],
+            ['', '', Paragraph('<font size="12" color="#004E4E"><b>Total:</b></font>', styles['Normal']), 
+             Paragraph(f'<font size="12" color="#004E4E"><b>${float(total):.2f}</b></font>', styles['Normal'])]
+        ]
+        
+        totals_table = Table(totals_data, colWidths=[150, 90, 130, 130])
+        totals_table.setStyle(TableStyle([
+            ('ALIGN', (2, 0), (-1, -1), 'RIGHT'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('BACKGROUND', (2, 0), (-1, -1), brand_light),
+            ('TOPPADDING', (2, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (2, 0), (-1, -1), 8),
+            ('LEFTPADDING', (2, 0), (-1, -1), 15),
+            ('RIGHTPADDING', (2, 0), (-1, -1), 15),
+            ('LINEABOVE', (2, 3), (-1, 3), 2, brand_primary),
+        ]))
+        elements.append(totals_table)
+        
+        # ============== FOOTER ==============
+        elements.append(Spacer(1, 30))
+        footer_style = ParagraphStyle(
+            'Footer', 
+            parent=styles['Normal'], 
+            fontSize=9, 
+            textColor=gray_text, 
+            alignment=TA_CENTER,
+            borderPadding=10
+        )
+        elements.append(Paragraph('Gracias por tu compra - hidratarte.com', footer_style))
+        
+        # Construir PDF
+        doc.build(elements)
+        pdf_bytes = buffer.getvalue()
+        buffer.close()
         
     except Exception as e:
-        logger.error(f"Error generando PDF con WeasyPrint: {e}")
+        logger.error(f"Error generando PDF con ReportLab: {e}")
         return Response({'detail': 'Error al generar el PDF'}, status=500)
 
     response = HttpResponse(pdf_bytes, content_type='application/pdf')
